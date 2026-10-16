@@ -1,0 +1,12 @@
+fields:
+  fecha_transaccion: "Fecha de la transacción del registro."
+  id_cliente: "Código de cliente."
+  cuenta_corporativa: "Número de tarjeta de crédito"
+  id_proceso: "Código de proceso."
+  descripcion_proceso: "Descripcion del proceso."
+  estatus_anterior: "Codigo estado anterior."
+  descripcion_estatus_anterior: "Descripción estado anterior."
+  estatus_actual: "Código estado actual"
+  descripcion_estatus_actual: "Descripción estado actual"
+  _observ_start_dt: "Fecha inicio observación."
+  _observ_end_dt: "Fecha fin observación."

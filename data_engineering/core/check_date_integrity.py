@@ -1,0 +1,436 @@
+import functools as ft
+import logging
+import os
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
+
+from databricks.connect import DatabricksSession
+from prefect import get_run_logger, task
+from pyspark.sql import DataFrame
+from pyspark.sql import functions as f
+from pyspark.sql.types import IntegerType, StringType, StructField, StructType
+from pyspark.sql.window import Window
+
+from data_engineering.core.utils import load_yaml_file
+
+spark = DatabricksSession.builder.getOrCreate()
+logger = logging.getLogger(__name__)
+
+
+@task(name="check_information_by_date_task", tags=["qa", "check_date_integrity"])
+def check_information_by_date_task(
+    p_start_date: str, p_end_date: str, p_exceptions=[]
+) -> DataFrame:
+    """
+    Build a date-by-table coverage and record count report across curated tables,
+    normalizing different date column frequencies (daily vs. month-end) and
+    returning a unified dataframe of expected dates vs. observed records.
+
+    This task:
+      - Defines date-driving columns with their frequencies (daily or monthly).
+      - Generates the expected date sequences (daily and EOM) for the provided
+      window.
+      - Collects tables per date-driving column and dynamically queries each to
+      extract observed dates.
+      - Counts records observed per (fecha_informacion, tabla) within the window.
+      - Joins expected dates with observed counts and table metadata and fills
+      missing counts with 0.
+
+    Args:
+        p_start_date (str): Inclusive start of the reporting window in `YYYY-MM-DD`
+        format.
+        p_end_date (str): Inclusive end of the reporting window in `YYYY-MM-DD` format.
+        p_exceptions (List): List of table names that will not be processed in the qa
+        information check.
+
+    Returns:
+        DataFrame: A  DataFrame with one row per expected date and table, including:
+            `fecha_informacion`, `tabla`, `tipo_tabla`, `cnt` and `columna`.
+    """
+    DATE_FREQUENCIES = {
+        "fecha_transaccion": {
+            "frequency": "daily",
+            "type": "transaccional",
+            "priority": 1,
+        },
+        "fecha_catalogo": {
+            "frequency": "monthly",
+            "type": "catalogo",
+            "priority": 2,
+        },
+        "_observ_end_dt": {"frequency": "monthly", "type": "snapshot", "priority": 3},
+    }
+
+    df_daily_dates = date_sequence_task_task(p_start_date, p_end_date, "1,0")
+    df_eom_dates = date_sequence_task_task(p_start_date, p_end_date, "1")
+    list_table = [
+        item
+        for item in schema_tables_task()
+        if not any(x in item for x in ["qa", "dbd", "sc_", *p_exceptions])
+    ]
+
+    df_table_type = table_columns_task(list_table, DATE_FREQUENCIES)
+
+    df_result = spark.createDataFrame([], schema="fecha_informacion date, tabla string")
+    df_date_table = df_result
+
+    for column_name, description in DATE_FREQUENCIES.items():
+        tables_to_process = collect_tables_for_column_task(df_table_type, column_name)
+        if tables_to_process:
+            date_df = (
+                df_daily_dates if description["frequency"] == "daily" else df_eom_dates
+            )
+            sentence = f"select {column_name} fecha_informacion from "
+            df_by_data_type = dynamic_query_task(tables_to_process, sentence)
+            if df_by_data_type is not None:
+                df_result = df_result.union(df_by_data_type)
+
+            df_dates = all_dates_task(date_df, tables_to_process)
+            if df_dates is not None:
+                df_date_table = df_date_table.union(df_dates)
+
+    df_records = count_records_task(df_result, p_start_date, p_end_date)
+
+    df_final = (
+        df_date_table.join(df_records, ["fecha_informacion", "tabla"], "left")
+        .join(df_table_type, ["tabla"], "left")
+        .fillna(0)
+    )
+
+    return df_final
+
+
+@task(name="get_date_range_check_task", tags=["qa", "check_date_integrity"])
+def get_date_range_check_task():
+    """Generates the start date and end date required for automatic validation.
+
+    Args:
+        None.
+
+    Returns:
+        start_dt: start date
+        end_dt: end date
+    """
+    if not os.getenv("start_dt") or not os.getenv("end_dt"):
+        start_date = (
+            datetime.today() + timedelta(days=-datetime.today().day)
+        ).strftime("%Y-%m-") + "01"
+        end_date = (datetime.today() + timedelta(days=-datetime.today().day)).strftime(
+            "%Y-%m-%d"
+        )
+    else:
+        start_date = os.getenv("start_dt")
+        end_date = os.getenv("end_dt")
+
+    return start_date, end_date
+
+
+@task(name="dynamic_query_task", tags=["qa", "check_date_integrity"])
+def dynamic_query_task(p_list, p_query):
+    """Execute a dynamic query with the list of tables provided
+
+    Args:
+        p_list (list): Tables.
+        p_query (str): Query to execute.
+
+    Returns:
+         DataFrame: Df with the data generated by the query
+    """
+    if p_list:
+        list_cols = []
+        for item in p_list:
+            query_execute = p_query + item
+            execute = spark.sql(query_execute).withColumn("tabla", f.lit(item))
+            list_cols.append(execute)
+
+        result = ft.reduce(DataFrame.unionAll, list_cols)
+
+        return result
+
+
+@task(name="schema_tables_task", tags=["qa", "check_date_integrity"])
+def schema_tables_task():
+    """Used to generate a list of tables with their schema
+
+    Args:
+        None
+
+    Returns:
+         List: Tables with their schema
+    """
+    root_dir = os.getenv("root_dir")
+    company = load_yaml_file(
+        os.path.join(root_dir, "env/base/global_settings.yml")
+    ).get("company")
+
+    env = os.getenv("env")
+    workflow = os.getenv("workflow")
+
+    environment_catalog = "sandbox" if env not in ["prod", "dev"] else env
+
+    schema = f"{env}_{workflow}"
+
+    catalog = f"{company}_{environment_catalog}_de"
+
+    spark.sql(f"use catalog {catalog}")
+
+    list_table = [
+        schema + "." + row.tableName
+        for row in spark.sql(f"show tables in {schema}").collect()
+    ]
+
+    return list_table
+
+
+@task(name="table_columns_task", tags=["qa", "check_date_integrity"])
+def table_columns_task(p_list_tables, p_date_column_frequencies):
+    """Generates the columns from the list of provided tables
+
+    Args:
+        p_list_tables (list): List of table names.
+        p_date_column_frequencies (dict): Dictionary with date column names
+        and their frequencies.
+
+    Returns:
+        DataFrame: Dataframe with the names of the tables and their columns
+    """
+    df_table_columns = dynamic_query_task(p_list_tables, "show columns from ")
+
+    if df_table_columns is None:
+        return spark.createDataFrame(
+            [], schema="tabla string, columna string, tipo_tabla string"
+        )
+
+    mapping_rows = [
+        (col_name, meta.get("type"), meta.get("priority"))
+        for col_name, meta in p_date_column_frequencies.items()
+    ]
+
+    if not mapping_rows:
+        return spark.createDataFrame(
+            [], schema="tabla string, columna string, tipo_tabla string"
+        )
+
+    df_map = spark.createDataFrame(
+        mapping_rows,
+        schema=StructType(
+            [
+                StructField("col_name", StringType(), False),
+                StructField("tipo_tabla", StringType(), True),
+                StructField("priority", IntegerType(), True),
+            ]
+        ),
+    )
+
+    df_candidates = df_table_columns.join(
+        f.broadcast(df_map), on="col_name", how="inner"
+    ).select(
+        f.col("tabla"),
+        f.col("col_name").alias("columna"),
+        f.col("tipo_tabla"),
+        f.col("priority"),
+    )
+
+    if len(df_candidates.head(1)) == 0:
+        return spark.createDataFrame(
+            [], schema="tabla string, columna string, tipo_tabla string"
+        )
+    w = Window.partitionBy("tabla").orderBy(f.col("priority").asc())
+
+    df_ranked = df_candidates.withColumn("rn", f.row_number().over(w))
+
+    df_final = df_ranked.filter(f.col("rn") == 1).select(
+        "tabla", "columna", "tipo_tabla"
+    )
+
+    return df_final
+
+
+@task(name="date_sequence_task_task", tags=["qa", "check_date_integrity"])
+def date_sequence_task_task(p_start_dt, p_end_dt, p_filter_date):
+    """Sequence dates from the previous month.
+
+    Args:
+        p_start_dt: start date
+        p_end_dt: end date
+        p_filter_date: filter to generate the necessary dates
+
+    Returns:
+         DataFrame: Date dataframe
+    """
+
+    df_date_sequence = spark.sql(
+        f"with date_range as( \
+        select to_date('{p_start_dt}') as start_dt, to_date('{p_end_dt}') as end_dt \
+        ) select fecha_informacion \
+         from(select \
+             explode(sequence(start_dt, end_dt, interval 1 day)) as fecha_informacion \
+         from date_range) \
+         where (case \
+                when fecha_informacion = last_day(fecha_informacion) \
+                    then 1 else 0 end) in ({p_filter_date})"
+    )
+
+    return df_date_sequence
+
+
+@task(name="all_dates_task", tags=["qa", "check_date_integrity"])
+def all_dates_task(p_prev_month_df, p_table_list):
+    """Name of the tables with all the days of the previous month.
+
+    Args:
+        p_prev_month_df (DataFrame): dates of the previous month.
+        p_table_list (List): Table list.
+
+    Returns:
+         DataFrame: DataFrame with all tables and dates.
+    """
+    df_list = []
+
+    if p_table_list:
+        for table in p_table_list:
+            df_union = p_prev_month_df.select(
+                f.col("fecha_informacion"), f.lit(table).alias("tabla")
+            )
+            df_list.append(df_union)
+        return ft.reduce(DataFrame.unionAll, df_list)
+    else:
+        return None
+
+
+@task(name="count_records_task", tags=["qa", "check_date_integrity"])
+def count_records_task(p_df_table, p_start_dt, p_end_dt):
+    """Record count per table.
+
+    Args:
+        p_df_table (DataFrame): Dates of the previous month and table
+        p_start_dt (str): Start date.
+        p_end_dt (str): End date.
+
+    Returns:
+         DataFrame: DataFrame with Record count per table.
+    """
+    df_count_records = (
+        p_df_table.filter(f.col("fecha_informacion").between(p_start_dt, p_end_dt))
+        .groupBy(f.col("fecha_informacion"), f.col("tabla"))
+        .agg(f.count("*").alias("cnt"))
+    )
+
+    return df_count_records
+
+
+@task(name="evaluate_missing_information_task", tags=["qa", "check_date_integrity"])
+def evaluate_missing_information_task(
+    p_df: DataFrame,
+    p_error_message: str,
+    p_custom_validations: Optional[Dict[str, int]] = None,
+) -> None:
+    df_missing_dates = p_df.filter(f.col("cnt") == 0)
+    logger = get_run_logger()
+    logger.info("QA: Inspecting missing information across %d dates", p_df.count())
+
+    if not df_missing_dates.head(1):
+        logger.info("✅     QA: No missing information detected")
+        return
+
+    group_columns: List[str] = ["tabla", "tipo_tabla", "columna"]
+
+    df_additional_missing_dates = (
+        df_missing_dates.withColumn(
+            "fecha_informacion_norm",
+            f.when(
+                (f.col("tipo_tabla") == "catalogo") & (f.col("columna") == "full_load"),
+                f.col("fecha_informacion"),
+            ).otherwise(f.last_day(f.col("fecha_informacion"))),
+        )
+        .groupBy(*group_columns, "fecha_informacion_norm")
+        .count()
+        .withColumnRenamed("fecha_informacion_norm", "fecha_informacion")
+    )
+
+    df_missing_dates_custom = df_additional_missing_dates
+
+    if p_custom_validations:
+        map_entries: List[f.Column] = []
+        for key, value in p_custom_validations.items():
+            map_entries.extend([f.lit(key), f.lit(value)])
+
+        custom_domain_prefixes = f.array(
+            *[f.lit(key) for key in p_custom_validations.keys()]
+        )
+
+        df_missing_dates_custom = df_missing_dates_custom.withColumn(
+            "custom_validations", f.create_map(*map_entries)
+        )
+
+        df_missing_dates_custom = df_missing_dates_custom.withColumn(
+            "matched_keys",
+            f.filter(custom_domain_prefixes, lambda k: f.col("tabla").contains(k)),
+        )
+
+        df_missing_dates_custom = df_missing_dates_custom.filter(
+            ~(f.col("tipo_tabla") == "transaccional")
+            | (f.size(f.col("matched_keys")) == 0)
+            | (
+                f.size(
+                    f.filter(
+                        f.col("matched_keys"),
+                        lambda k: f.col("custom_validations")[k] < f.col("count"),
+                    )
+                )
+                > 0
+            )
+        )
+
+    df_missing_dates_custom = df_missing_dates_custom.select(
+        f.col("tabla"),
+        f.col("tipo_tabla"),
+        f.col("columna"),
+        f.date_format(f.col("fecha_informacion"), "yyyy-MM").alias(
+            "month_without_data"
+        ),
+    )
+
+    missing_rows = df_missing_dates_custom.collect()
+    if not missing_rows:
+        logger.info("QA: No missing information detected")
+        return
+
+    if df_missing_dates_custom.count() > 0:
+        logger.info("QA: Missing information detected Monthly")
+        result = [list(row) for row in missing_rows]
+        for item in result:
+            print(item)
+
+        if df_missing_dates.filter(f.col("tipo_tabla") == "transaccional").count() > 0:
+            logger.info("QA: Missing information detected detailed.")
+
+            missing_rows_detailed = df_missing_dates.select(
+                f.col("tabla"),
+                f.col("tipo_tabla"),
+                f.col("columna"),
+                f.date_format(f.col("fecha_informacion"), "yyyy-MM-dd"),
+            ).collect()
+
+            ls_missing_dates = [list(row) for row in missing_rows_detailed]
+            for item in ls_missing_dates:
+                print(item)
+
+        raise TypeError(p_error_message)
+
+    raise RuntimeError(p_error_message)
+
+
+@task(name="collect_tables_for_column_task", tags=["qa", "check_date_integrity"])
+def collect_tables_for_column_task(
+    p_df_table_type: DataFrame, p_column_name: str
+) -> List[str]:
+    return [
+        row["tabla"]
+        for row in (
+            p_df_table_type.filter(f.col("columna") == p_column_name)
+            .select(f.col("tabla"))
+            .distinct()
+            .collect()
+        )
+    ]

@@ -1,0 +1,19 @@
+from prefect import flow
+
+from data_engineering.core.dashboard_data_flow import orchestrate_qa_profile_task
+from data_engineering.core.save_data_flow import save_data_flow
+
+
+@flow(name="dashboard_profile_flow")
+def dashboard_profile_flow():
+    """
+    The flow performs the following operations:
+    1. Validates the data catalog and creates profile metrics.
+    2. Saves the processed data to the appropriate environment using the
+       specified overwrite strategy.
+
+    Returns:
+        None: This flow does not return a value
+    """
+    df_profile = orchestrate_qa_profile_task(["id_cliente"], "2018-01-01")
+    save_data_flow(df_profile)

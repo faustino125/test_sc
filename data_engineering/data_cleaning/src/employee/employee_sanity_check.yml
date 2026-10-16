@@ -1,0 +1,8 @@
+emp_empleado:
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "fecha_informacion"]
+    null_thresholds:
+      id_cliente: 0
+      fecha_informacion: 0
+    severity: CRITICAL

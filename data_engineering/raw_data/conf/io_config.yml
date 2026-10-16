@@ -1,0 +1,16 @@
+transactional: &transactional fecha_transaccion
+snapshot: &snapshot fecha_informacion
+catalog: &catalog fecha_catalogo
+
+sanity_check_results:
+  Output: "sanity_check_results"
+  description: "Resultados de la comprobación de validación de datos"
+  input_partition_col: "_observ_end_dt"
+
+missing_raw_data:
+  Input:
+    - raw_tables
+    - raw_records_dwh_summary
+  Output: informacion_faltante
+  input_partition_col: ""
+  description: "Tablas de datos crudos que no tienen informacion para la fecha indicada"

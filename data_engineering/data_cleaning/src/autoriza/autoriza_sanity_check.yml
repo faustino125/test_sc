@@ -1,0 +1,13 @@
+au_catalogo_mcc:
+  duplicates:
+    enabled: true
+    primary_key: ["mcc"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["mcc", "agrupacion_mcc","fecha_catalogo"]
+    null_thresholds:
+      mcc: 0
+      agrupacion_mcc: 0
+      fecha_catalogo: 0
+    severity: HIGH

@@ -1,0 +1,7 @@
+fields:
+  fecha_catalogo: "fecha catálogo"
+  id_cliente:  "CIF de cliente"
+  id_instalacion: "código de instalación"
+  cuenta_corporativa: "Cuenta corporativa"
+  _observ_start_dt: "Fecha observación de inicio."
+  _observ_end_dt: "Fecha observación final."

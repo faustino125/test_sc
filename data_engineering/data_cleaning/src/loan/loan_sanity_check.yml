@@ -1,0 +1,28 @@
+pre_prestamo:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente","cuenta_corporativa","descripcion_empresa"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "cuenta_corporativa", "descripcion_empresa", "fecha_informacion"]
+    null_thresholds:
+      id_cliente: 0
+      cuenta_corporativa: 0
+      descripcion_empresa: 0
+      fecha_informacion: 0
+    severity: CRITICAL
+
+pre_estado_crm:
+  duplicates:
+    enabled: true
+    primary_key: ["cuenta_corporativa","id_crm"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["cuenta_corporativa", "id_crm", "fecha_catalogo"]
+    null_thresholds:
+      cuenta_corporativa: 0
+      id_crm: 0
+      fecha_catalogo: 0
+    severity: CRITICAL

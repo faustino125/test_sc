@@ -1,0 +1,12 @@
+agen_catalogo_agencia_qflow:
+  duplicates:
+    enabled: true
+    primary_key: ["id_agencia"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_agencia", "fecha_catalogo"]
+    null_thresholds:
+      id_agencia: 0
+      fecha_catalogo: 0
+    severity: CRITICAL

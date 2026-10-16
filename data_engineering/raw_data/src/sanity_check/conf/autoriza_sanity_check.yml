@@ -1,0 +1,13 @@
+#---------------- vw_coe_au_catalogo_mcc --------------------------------
+vw_coe_au_catalogo_mcc:
+  duplicates:
+    enabled: true
+    primary_key: ["mcc"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["mcc", "dw_fecha_informacion"]
+    null_thresholds:
+      mcc: 0                         # 0% nulls allowed
+      dw_fecha_informacion: 0        # 0% nulls allowed
+    severity: HIGH

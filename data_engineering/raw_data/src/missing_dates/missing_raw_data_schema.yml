@@ -1,0 +1,9 @@
+fields:
+  vista: Vista histórica en DWH
+  fecha: Columna de particion
+  fecha_faltante: Fecha que hace falta en fuente de informacion
+  container: Container en el que está ubicada la informacion
+  ruta: Ruta dentro de container
+  archivo: Nombre de archivo en fuente de informacion
+  tipo_migracion: Tipo de fuente de informacion
+  base_datos: Base de datos en DWH

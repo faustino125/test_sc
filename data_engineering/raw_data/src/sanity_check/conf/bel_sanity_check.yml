@@ -1,0 +1,26 @@
+#---------------- vw_coe_bel_usuariocli --------------------------------
+vw_coe_bel_usuariocli:
+  duplicates:
+    enabled: true
+    primary_key: ["Instalacion"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["Instalacion", "DW_FECHA_INFORMACION"]
+    null_thresholds:
+      Instalacion: 0              # 0% nulls allowed
+      DW_FECHA_INFORMACION: 0        # 0% nulls allowed
+    severity: HIGH
+
+#---------------- vw_coe_bel_instalacion --------------------------------
+vw_coe_bel_instalacion:
+  duplicates:
+    enabled: true
+    primary_key: ["Instalacion"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["Instalacion"]
+    null_thresholds:
+      Instalacion: 0              # 0% nulls allowed
+    severity: HIGH

@@ -1,0 +1,246 @@
+partition_col: &partition_col _observ_end_dt
+
+sanity_check_results:
+  Output: "sanity_check_results"
+  description: "Resultados de la comprobación de validación de datos"
+  input_partition_col: "_observ_end_dt"
+
+dashboard_volume:
+  Output: volume_data_dashboard
+  description: "Información de resumen de comportamiento y estadistica descriptiva para dashboard con granularidad por tabla"
+
+dashboard_profile:
+  Output: profile_data_dashboard
+  description: "Información de resumen de comportamiento y estadistica descriptiva para dashboard con granularidad por columna"
+
+customer:
+  Input:
+    - cleaned_customer
+    - cleaned_employee
+    - cleaned_income
+    - cleaned_main_address
+    - cleaned_ire
+    - cleaned_bbk_supplier
+    - cleaned_bel_login
+    - cleaned_bel_users
+    - cleaned_bel_app_master
+    - cleaned_leads
+    - cleaned_cc_customer_extra_financing
+    - cleaned_legal_financial
+  Output: cliente
+  input_partition_col: *partition_col
+  description: "Información mensual de características de clientes, con datos creados a base de transformaciones."
+
+product:
+  Input:
+    - cleaned_customer_products
+  Output: cliente_producto
+  input_partition_col: *partition_col
+  description: "Información mensual de características de productos, con datos creados a base de transformaciones."
+
+bel:
+  Input:
+    - cleaned_bel_app_transfers
+    - cleaned_customer_products
+    - cleaned_bel_web_transfers
+    - cleaned_exchange_rate
+  Output: canal_digital
+  input_partition_col: *partition_col
+  description: "Información mensual de características en canales digitales bel web y app, con datos creados a base de transformaciones."
+
+bi_banking:
+  Input:
+    - cleaned_customer_products
+    - cleaned_bbk_transaction
+    - cleaned_exchange_rate
+  Output: transacciones
+  input_partition_col: *partition_col
+  description: "Información mensual de características en BI Banking, con datos creados a base de transformaciones."
+
+current_account:
+  Input:
+    - cleaned_exchange_rate
+    - cleaned_current_account
+    - cleaned_current_account_transaction
+  Output: monetaria
+  input_partition_col: *partition_col
+  description: "Información mensual de características de cuentas monetarias, con datos creados a base de transformaciones."
+
+debit_card:
+  Input:
+    - cleaned_debit_card
+  Output: tarjeta_debito
+  input_partition_col: *partition_col
+  description: "Información mensual de características de tarjeta de débito, con datos creados a base de transformaciones."
+
+loan_account:
+  Input:
+    - cleaned_exchange_rate
+    - cleaned_loan_account
+  Output: prestamo
+  input_partition_col: *partition_col
+  description: "Información mensual de características de prestamos, con datos creados a base de transformaciones."
+
+investment:
+  Input:
+    - cleaned_investment
+    - cleaned_investment_transaction
+    - cleaned_exchange_rate
+  Output: inversiones
+  input_partition_col: *partition_col
+  description: "Información mensual de características de cuentas de inversion, con datos creados a base de transformaciones."
+
+physical_channel:
+  Input:
+    - cleaned_branch_operations
+    - cleaned_qflow_branches
+    - cleaned_exchange_rate
+  Output: canal_fisico
+  input_partition_col: *partition_col
+  description: "Información mensual de operaciones realizadas en agencias."
+
+credit_card:
+  Input:
+    - cleaned_cc_account
+    - cleaned_cc_categories
+    - cleaned_cc_updates
+    - cleaned_cc_balance
+    - cleaned_cc_tenure_tsae83
+    - cleaned_cc_transaction_universe
+    - cleaned_exchange_rate
+    - cleaned_cc_extra_financing_master
+  Output: tarjeta_de_credito
+  input_partition_col: *partition_col
+  description: "Información mensual de características de tarjetas de crédito, con datos creados a base de transformaciones."
+
+additional_credit_card:
+  Input:
+    - cleaned_additional_cc
+  Output: tarjeta_de_credito_adicional
+  input_partition_col: *partition_col
+  description: "Información mensual de características de tarjetas de crédito adicionales, con datos creados a base de transformaciones."
+
+check_date:
+  Output: control_rango_fechas
+  description: "Verifica que todos los flows de data transformation tengan información del mes anterior"
+
+saving_account:
+  Input:
+    - cleaned_exchange_rate
+    - cleaned_saving_account
+    - cleaned_saving_account_transaction
+  Output: cuenta
+  input_partition_col: *partition_col
+  description: "Información de características mensuales de cuentas tipo ahorro, con datos de utilidad creados a base de transformaciones."
+
+transactions:
+  Input:
+    - cleaned_cards_transactions
+    - cleaned_mcc_catalog
+    - cleaned_exchange_rate
+    - cleaned_customer_products
+  Output: transacciones_tarjetas
+  input_partition_col: *partition_col
+  description: "Información de características mensuales de transacciones realizadas a través de POS con base a transformaciones."
+
+joint_account:
+  Input:
+    - cleaned_joint_account
+  Output: mancomunada
+  input_partition_col: *partition_col
+  description: "Información mensual de características cuentas mancomunadas."
+
+eql_sib_debt_detail:
+  Input:
+    - cleaned_eql_external_bureau
+    - cleaned_eql_person_request
+    - cleaned_eql_person
+    - cleaned_eql_sib_debt_detail
+    - cleaned_eql_sib_debt_history
+    - cleaned_customer
+  Output: deuda_sib
+  input_partition_col: *partition_col
+  description: "Información mensual de las deudas en equifax consumo."
+
+eql_request:
+  Input:
+    - cleaned_eql_person_request
+    - cleaned_eql_person
+    - cleaned_customer
+    - cleaned_loan_account
+    - cleaned_loan_case
+    - cleaned_eql_request
+  Output: solicitud
+  input_partition_col: ""
+  description: "Información de las solicitudes de préstamos en equifax consumo."
+
+eql_person:
+  Input:
+    - cleaned_eql_person
+    - cleaned_customer
+  Output: persona
+  input_partition_col: ""
+  description: "Información de las solicitudes de préstamos en equifax consumo."
+
+eql_sib_debt_history:
+  Input:
+    - cleaned_eql_external_bureau
+    - cleaned_eql_person_request
+    - cleaned_eql_person
+    - cleaned_eql_sib_debt_detail
+    - cleaned_eql_sib_debt_history
+    - cleaned_customer
+  Output: historial_deuda_sib
+  input_partition_col: *partition_col
+  description: "Información mensual del historial de deudas en equifax consumo."
+
+eql_tu_debt_detail:
+  Input:
+    - cleaned_eql_external_bureau
+    - cleaned_eql_person_request
+    - cleaned_eql_person
+    - cleaned_eql_tu_debt_detail
+    - cleaned_exchange_rate
+    - cleaned_customer
+  Output: deuda_tu
+  input_partition_col: *partition_col
+  description: "Información mensual de las deudas en equifax consumo."
+
+eql_income:
+  Input:
+    - cleaned_eql_person_request
+    - cleaned_eql_person
+    - cleaned_customer
+    - cleaned_eql_request
+  Output: ingresos
+  input_partition_col: ""
+  description: "Información de los ingresos reportados en las solicitudes de equifax consumos."
+
+sib_debt_detail:
+  Input:
+    - cleaned_sib_risk_category
+    - cleaned_sib_debt_detail
+    - cleaned_sib_general_data
+    - cleaned_sib_entry_point
+    - cleaned_customer
+  Output: detalle_deuda
+  input_partition_col: *partition_col
+  description: "Información mensual de deudas reportadas en la SIB."
+
+sib_debt_history:
+  Input:
+    - cleaned_sib_risk_category
+    - cleaned_sib_debt_detail
+    - cleaned_sib_debt_history
+    - cleaned_sib_entry_point
+    - cleaned_customer
+  Output: historial_deuda
+  input_partition_col: *partition_col
+  description: "Información mensual del historial de deuda reportado en la SIB."
+
+sanity_check:
+  Input:
+    - all_tables
+  Output: historial_sanity_check
+  input_partition_col: "_observ_end_dt"
+  description: "Logs de calidad de datos generados por el Sanity Check"

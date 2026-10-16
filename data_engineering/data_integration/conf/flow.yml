@@ -1,0 +1,23 @@
+data_integration_flow:
+  - mc_saving_account.mc_saving_account_flow
+  - mc_current_account.mc_current_account_flow
+  - mc_loan.mc_loan_flow
+  - mc_debit_card.mc_debit_card_flow
+  - mc_credit_card.mc_credit_card_flow
+  - mc_bi_banking.mc_bi_banking_flow
+  - mc_bel.mc_bel_flow
+  - mc_investment.mc_investment_flow
+  - mc_equifax_loan.mc_eql_sib_debt_detail_flow
+  - mc_equifax_loan.mc_eql_tu_debt_detail_flow
+  - mc_cliente.mc_cliente_flow
+
+full_load_flow:
+  - mc_equifax_loan.mc_eql_income_flow
+
+qa_flow:
+  - mc_data_quality.check_date_flow
+
+
+dashboard_flow:
+  - mc_dashboard.dashboard_volume_flow
+  - mc_dashboard.dashboard_profile_flow

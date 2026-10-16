@@ -1,0 +1,15 @@
+common_parquet: &common_parquet
+  additional_raw_option: "/*"
+  file_extension: parquet
+
+Input:
+  raw_tables:
+    <<: *common_parquet
+    path: "control_migracion_datos_crudos/raw_tables"
+    description: "Datos crudos de todas nuestras fuentes de informacion"
+
+  raw_records_dwh_summary:
+    <<: *common_parquet
+    path: "control_migracion_datos_crudos/dw_coe_control_registros_dl"
+    description: "Control de cantidad de registros para tablas"
+    additional_raw_option: ""

@@ -1,0 +1,15 @@
+
+#---------------- vw_COE_IRE_ingresos --------------------------------
+vw_COE_IRE_ingresos:
+  duplicates:
+    enabled: true
+    primary_key: ["codigo_cliente","Sec_Formulario"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["codigo_cliente", "Sec_Formulario", "dw_fecha_informacion"]
+    null_thresholds:
+      codigo_cliente: 0              # 0% nulls allowed
+      Sec_Formulario: 0              # 0% nulls allowed
+      dw_fecha_informacion: 0        # 0% nulls allowed
+    severity: HIGH

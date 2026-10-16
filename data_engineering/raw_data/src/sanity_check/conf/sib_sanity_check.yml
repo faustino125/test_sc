@@ -1,0 +1,9 @@
+#---------------- vw_coe_sib_categoria_riesgo --------------------------------
+vw_coe_sib_categoria_riesgo:
+  null_values:
+    enabled: true
+    columns: ["id_categoria_riesgo", "dw_fecha_informacion"]
+    null_thresholds:
+      id_categoria_riesgo: 0            # 0% nulls allowed
+      dw_fecha_informacion: 0        # 0% nulls allowed
+    severity: MEDIUM

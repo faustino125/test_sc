@@ -1,0 +1,13 @@
+aho_cuenta:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente", "cuenta_corporativa"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "cuenta_corporativa", "fecha_informacion"]
+    null_thresholds:
+      id_cliente: 0
+      cuenta_corporativa: 0
+      fecha_informacion: 0
+    severity: CRITICAL

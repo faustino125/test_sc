@@ -1,0 +1,123 @@
+#---------------- vw_Mksy_clientes --------------------------------
+vw_Mksy_clientes:
+  duplicates:
+    enabled: true
+    primary_key: ["CODIGO_CLIENTE"]
+    severity: HIGH
+
+  null_values:
+    enabled: true
+    columns:
+    - CODIGO_CLIENTE
+    - DW_FECHA_INFORMACION
+    - DW_ES_5X1
+    - DW_BANCA_FAVORITA
+    - DW_CARTERIZACION
+    null_thresholds:
+      CODIGO_CLIENTE: 0         # 0% nulls allowed
+      DW_FECHA_INFORMACION: 0   # 0% nulls allowed
+      DW_ES_5X1: 75             # 75% nulls allowed
+      DW_BANCA_FAVORITA: 50     # 50% nulls allowed
+      DW_CARTERIZACION: 15      # 15% nulls allowed
+    severity: CRITICAL
+
+  consistency:
+    enabled: true
+    rules:
+      - name: check_es_5x1
+        condition: "(DW_ES_5X1 IS NULL) OR (DW_ES_5X1 = 'S')"
+        severity: CRITICAL
+      - name: check_banca_favorita
+        condition: >
+          (DW_BANCA_FAVORITA IS NULL) OR (
+            DW_BANCA_FAVORITA IN (
+              'ATENCION AL PUBLICO', 'BANCA PERSONAL', 'NO CODIFICADO',
+              'MICROFINANZAS', 'CONTECNICA', 'PYMES', 'BANCA CORPORATIVA',
+              'VIVIENDA', 'VEHICULOS', 'BI-PREMIUM', 'INTERNACIONAL'
+            )
+          )
+        severity: HIGH
+      - name: check_carterizacion
+        condition: >
+          (DW_CARTERIZACION IS NULL) OR (
+            DW_CARTERIZACION IN (
+              'SALDO ACREEDOR', 'MICROEMPRESA INDIVIDUAL', 'SOBREGIRADOS',
+              'PERSONAS RENTA MEDIA', 'PERSONAS RENTA BAJA', 'TEEN',
+              'INSTITUCIONAL PEQUEÑA', 'INSTITUCIONAL BAJO', 'MICROEMPRESA',
+              'PYMES BAJO', 'CONSUMO MASIVO', 'PYMES MEDIO', 'BANCA PRIVADA',
+              'EMPRESA GRANDE', 'INSTITUCIONAL MEDIO', 'CLIENTE SIN SALDO',
+              'PERSONAS RENTA ALTA', 'INFANTIL', 'CLIENTES SIN SALDO',
+              'UNIVERSITARIO', 'INSTITUCIONAL GRANDE', 'GUBERNAMENTAL',
+              'GRUPO CORPORATIVO', 'INSTITUCIONAL', 'EMPRESA PEQUEÑA',
+              'EMPRESA MEDIANA', 'SIN CLASIFICACION INDIVIDUAL'
+            )
+          )
+        severity: HIGH
+
+#---------------- vw_Mksy_cif_planilla --------------------------------
+vw_Mksy_cif_planilla:
+  duplicates:
+    enabled: true
+    primary_key: ["CIF_EMPLEADO"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["CIF_EMPLEADO", "DW_FECHA_INFORMACION"]
+    null_thresholds:
+      CIF_EMPLEADO: 0           # 0% nulls allowed
+      DW_FECHA_INFORMACION: 0   # 0% nulls allowed
+    severity: HIGH
+
+#---------------- vw_COE_Direccion_Principal --------------------------------
+vw_COE_Direccion_Principal:
+  duplicates:
+    enabled: true
+    primary_key: ["CODIGO_CLIENTE"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["CODIGO_CLIENTE"]
+    null_thresholds:
+      CODIGO_CLIENTE: 0         # 0% nulls allowed
+    severity: HIGH
+
+#---------------- vw_coe_productos_clientes --------------------------------
+vw_coe_productos_clientes:
+  null_values:
+    enabled: true
+    columns: ["CODIGO_CLIENTE", "CUENTA_CORPORATIVA"]
+    null_thresholds:
+      CODIGO_CLIENTE: 0             # 0% nulls allowed
+      CUENTA_CORPORATIVA: 0         # 0% nulls allowed
+      DW_APLICACION_DESCRIPCION: 0  # 0% nulls allowed
+    severity: HIGH
+  dimensional:
+    enabled: true
+    dimensions:
+      DW_APLICACION_DESCRIPCION: [
+        'PLAZO FIJO', 'BI EN LINEA', 'PRESTAMOS', 'MONETARIOS',
+        'AHORROS', 'CLUB BI', 'BI BANKING', 'TARJETA DEBITO',
+        'PLAN DORADO DE INVERSION', 'PLAN FUTURO PROGRAMADO',
+        'BONOS', 'PREPAGO', 'TARJETA DE CREDITO'
+      ]
+    severity: HIGH
+
+#---------------- vw_coe_leads_iniciativas --------------------------------
+vw_coe_leads_iniciativas:
+  null_values:
+    enabled: true
+    columns: ["codigo_cliente", "fecha_informacion"]
+    null_thresholds:
+      codigo_cliente: 0              # 0% nulls allowed
+      fecha_informacion: 0           # 0% nulls allowed
+    severity: HIGH
+
+#---------------- vw_coe_exclusion_campanias --------------------------------
+vw_coe_exclusion_campanias:
+  null_values:
+    enabled: true
+    columns: ["codigo_cliente", "fecha_informacion"]
+    null_thresholds:
+      codigo_cliente: 0              # 0% nulls allowed
+      fecha_informacion: 0           # 0% nulls allowed
+    severity: HIGH

@@ -1,0 +1,3747 @@
+---
+description: |
+    API documentation for modules: data_engineering.core, data_engineering.core.check_date_integrity, data_engineering.core.dashboard_data_flow, data_engineering.core.documentation_hive, data_engineering.core.load_data_flow, data_engineering.core.main_flow, data_engineering.core.sanity_check, data_engineering.core.sanity_check.base, data_engineering.core.sanity_check.engine, data_engineering.core.sanity_check.sanity_check_flow, data_engineering.core.sanity_check.standard_validators, data_engineering.core.sanity_check.utils, data_engineering.core.save_data_flow, data_engineering.core.utils.
+
+lang: en
+
+classoption: oneside
+geometry: margin=1in
+papersize: a4
+
+linkcolor: blue
+links-as-notes: true
+...
+
+
+
+# Module `data_engineering.core` {#id}
+
+
+
+
+
+## Sub-modules
+
+* [data_engineering.core.check_date_integrity](#data_engineering.core.check_date_integrity)
+* [data_engineering.core.dashboard_data_flow](#data_engineering.core.dashboard_data_flow)
+* [data_engineering.core.documentation_hive](#data_engineering.core.documentation_hive)
+* [data_engineering.core.load_data_flow](#data_engineering.core.load_data_flow)
+* [data_engineering.core.main_flow](#data_engineering.core.main_flow)
+* [data_engineering.core.sanity_check](#data_engineering.core.sanity_check)
+* [data_engineering.core.save_data_flow](#data_engineering.core.save_data_flow)
+* [data_engineering.core.utils](#data_engineering.core.utils)
+
+
+
+
+
+
+
+# Module `data_engineering.core.check_date_integrity` {#id}
+
+
+
+
+
+
+
+## Functions
+
+
+
+### Function `all_dates_task` {#id}
+
+
+
+
+>     def all_dates_task(
+>         p_prev_month_df,
+>         p_table_list
+>     )
+
+
+Name of the tables with all the days of the previous month.
+
+
+Args
+-----=
+**```p_prev_month_df```** :&ensp;<code>DataFrame</code>
+:   dates of the previous month.
+
+
+**```p_table_list```** :&ensp;<code>List</code>
+:   Table list.
+
+
+
+Returns
+-----=
+<code>DataFrame</code>
+:   DataFrame with all tables and dates.
+
+
+
+
+### Function `check_information_by_date_task` {#id}
+
+
+
+
+>     def check_information_by_date_task(
+>         p_start_date: str,
+>         p_end_date: str,
+>         p_exceptions=[]
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Build a date-by-table coverage and record count report across curated tables,
+normalizing different date column frequencies (daily vs. month-end) and
+returning a unified dataframe of expected dates vs. observed records.
+
+This task:
+  - Defines date-driving columns with their frequencies (daily or monthly).
+  - Generates the expected date sequences (daily and EOM) for the provided
+  window.
+  - Collects tables per date-driving column and dynamically queries each to
+  extract observed dates.
+  - Counts records observed per (fecha_informacion, tabla) within the window.
+  - Joins expected dates with observed counts and table metadata and fills
+  missing counts with 0.
+
+
+Args
+-----=
+**```p_start_date```** :&ensp;<code>str</code>
+:   Inclusive start of the reporting window in `YYYY-MM-DD`
+
+
+format.
+**```p_end_date```** :&ensp;<code>str</code>
+:   Inclusive end of the reporting window in `YYYY-MM-DD` format.
+
+
+**```p_exceptions```** :&ensp;<code>List</code>
+:   List of table names that will not be processed in the qa
+
+
+information check.
+
+Returns
+-----=
+<code>DataFrame</code>
+:   A  DataFrame with one row per expected date and table, including:
+    <code>fecha\_informacion</code>, <code>tabla</code>, <code>tipo\_tabla</code>, <code>cnt</code> and <code>columna</code>.
+
+
+
+
+### Function `collect_tables_for_column_task` {#id}
+
+
+
+
+>     def collect_tables_for_column_task(
+>         p_df_table_type: pyspark.sql.dataframe.DataFrame,
+>         p_column_name: str
+>     ) ‑> List[str]
+
+
+
+
+
+### Function `count_records_task` {#id}
+
+
+
+
+>     def count_records_task(
+>         p_df_table,
+>         p_start_dt,
+>         p_end_dt
+>     )
+
+
+Record count per table.
+
+
+Args
+-----=
+**```p_df_table```** :&ensp;<code>DataFrame</code>
+:   Dates of the previous month and table
+
+
+**```p_start_dt```** :&ensp;<code>str</code>
+:   Start date.
+
+
+**```p_end_dt```** :&ensp;<code>str</code>
+:   End date.
+
+
+
+Returns
+-----=
+<code>DataFrame</code>
+:   DataFrame with Record count per table.
+
+
+
+
+### Function `date_sequence_task_task` {#id}
+
+
+
+
+>     def date_sequence_task_task(
+>         p_start_dt,
+>         p_end_dt,
+>         p_filter_date
+>     )
+
+
+Sequence dates from the previous month.
+
+
+Args
+-----=
+**```p_start_dt```**
+:   start date
+
+
+**```p_end_dt```**
+:   end date
+
+
+**```p_filter_date```**
+:   filter to generate the necessary dates
+
+
+
+Returns
+-----=
+<code>DataFrame</code>
+:   Date dataframe
+
+
+
+
+### Function `dynamic_query_task` {#id}
+
+
+
+
+>     def dynamic_query_task(
+>         p_list,
+>         p_query
+>     )
+
+
+Execute a dynamic query with the list of tables provided
+
+
+Args
+-----=
+**```p_list```** :&ensp;<code>list</code>
+:   Tables.
+
+
+**```p_query```** :&ensp;<code>str</code>
+:   Query to execute.
+
+
+
+Returns
+-----=
+<code>DataFrame</code>
+:   Df with the data generated by the query
+
+
+
+
+### Function `evaluate_missing_information_task` {#id}
+
+
+
+
+>     def evaluate_missing_information_task(
+>         p_df: pyspark.sql.dataframe.DataFrame,
+>         p_error_message: str,
+>         p_custom_validations: Optional[Dict[str, int]] = None
+>     ) ‑> None
+
+
+
+
+
+### Function `get_date_range_check_task` {#id}
+
+
+
+
+>     def get_date_range_check_task()
+
+
+Generates the start date and end date required for automatic validation.
+
+
+Args
+-----=
+None.
+
+Returns
+-----=
+<code>start\_dt</code>
+:   start date
+
+
+<code>end\_dt</code>
+:   end date
+
+
+
+
+### Function `schema_tables_task` {#id}
+
+
+
+
+>     def schema_tables_task()
+
+
+Used to generate a list of tables with their schema
+
+
+Args
+-----=
+None
+
+Returns
+-----=
+<code>List</code>
+:   Tables with their schema
+
+
+
+
+### Function `table_columns_task` {#id}
+
+
+
+
+>     def table_columns_task(
+>         p_list_tables,
+>         p_date_column_frequencies
+>     )
+
+
+Generates the columns from the list of provided tables
+
+
+Args
+-----=
+**```p_list_tables```** :&ensp;<code>list</code>
+:   List of table names.
+
+
+**```p_date_column_frequencies```** :&ensp;<code>dict</code>
+:   Dictionary with date column names
+
+
+and their frequencies.
+
+Returns
+-----=
+<code>DataFrame</code>
+:   Dataframe with the names of the tables and their columns
+
+
+
+
+
+
+
+# Module `data_engineering.core.dashboard_data_flow` {#id}
+
+
+
+
+
+
+
+## Functions
+
+
+
+### Function `add_volume_controls_task` {#id}
+
+
+
+
+>     def add_volume_controls_task(
+>         p_df_series: pyspark.sql.dataframe.DataFrame,
+>         p_sens: float
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Calcula métricas de control y estado de calidad de volumen por tabla.
+
+Args
+-----=
+**```p_df_series```** :&ensp;<code>DataFrame</code>
+:   Serie mensual por tabla con registros y clientes.
+
+
+**```p_sens```** :&ensp;<code>float</code>
+:   Sensibilidad para límites estadísticos.
+
+
+
+Returns
+-----=
+<code>DataFrame</code>
+:   DataFrame con métricas de volumen y fecha.
+
+
+
+
+### Function `build_errors_task` {#id}
+
+
+
+
+>     def build_errors_task(
+>         p_errors: List
+>     )
+
+
+Registra errores detectados durante el cálculo de QA.
+
+Args
+-----=
+**```p_errors```** :&ensp;<code>List</code>
+:   Lista de errores de QA.
+
+
+
+Returns
+-----=
+None
+
+
+### Function `build_monthly_profile_for_table_task` {#id}
+
+
+
+
+>     def build_monthly_profile_for_table_task(
+>         p_source_fqn: str,
+>         p_table_name: str,
+>         p_df_spine: pyspark.sql.dataframe.DataFrame,
+>         p_columna_cliente: Iterable[str]
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Construye el perfil mensual por columna para una tabla.
+
+Args
+-----=
+**```p_source_fqn```** :&ensp;<code>str</code>
+:   FQN de la tabla origen.
+
+
+**```p_table_name```** :&ensp;<code>str</code>
+:   Nombre de la tabla.
+
+
+**```p_df_spine```** :&ensp;<code>DataFrame</code>
+:   Spine mensual de fechas.
+
+
+**```p_columna_cliente```** :&ensp;<code>Iterable\[str]</code>
+:   Columnas candidatas de cliente.
+
+
+
+Returns
+-----=
+<code>DataFrame</code>
+:   Perfil mensual por columna.
+
+
+
+
+### Function `build_monthly_spine_for_table_task` {#id}
+
+
+
+
+>     def build_monthly_spine_for_table_task(
+>         p_source_fqn: str,
+>         p_start_dt=''
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Construye el spine mensual desde el primer _observ_end_dt
+hasta el último día del mes anterior.
+
+Args
+-----=
+**```p_source_fqn```** :&ensp;<code>str</code>
+:   FQN de la tabla origen.
+
+
+
+Returns
+-----=
+<code>DataFrame</code>
+:   Spine mensual con fecha_informacion.
+
+
+
+
+### Function `build_profiles_task` {#id}
+
+
+
+
+>     def build_profiles_task(
+>         p_source_catalog: str,
+>         p_source_schema: str,
+>         p_table_names: Iterable[str],
+>         p_columna_cliente: Iterable[str],
+>         p_start_dt=''
+>     ) ‑> Tuple[Optional[pyspark.sql.dataframe.DataFrame], List[Tuple[str, str, str]]]
+
+
+Construye el perfil mensual para todas las tablas del esquema.
+
+Args
+-----=
+**```p_source_catalog```** :&ensp;<code>str</code>
+:   Catálogo origen.
+
+
+**```p_source_schema```** :&ensp;<code>str</code>
+:   Esquema origen.
+
+
+**```p_table_names```** :&ensp;<code>Iterable\[str]</code>
+:   Tablas a procesar.
+
+
+**```p_columna_cliente```** :&ensp;<code>Iterable\[str]</code>
+:   Columnas de cliente.
+
+
+**```p_start_dt```** :&ensp;<code>str</code>
+:   Fecha mínima opcional para el spine.
+
+
+
+Returns
+-----=
+`Tuple[DataFrame | None, list]`
+:   (perfil final, errores).
+
+
+
+
+### Function `build_volumes_task` {#id}
+
+
+
+
+>     def build_volumes_task(
+>         p_source_catalog: str,
+>         p_source_schema: str,
+>         p_table_names: Iterable[str],
+>         p_columna_cliente: Iterable[str],
+>         p_start_dt='',
+>         p_sens: float = 2.2
+>     ) ‑> Tuple[Optional[pyspark.sql.dataframe.DataFrame], List[Tuple[str, str, str]]]
+
+
+Construye métricas de volumen mensual para todas las tablas.
+
+Args
+-----=
+**```p_source_catalog```** :&ensp;<code>str</code>
+:   Catálogo origen.
+
+
+**```p_source_schema```** :&ensp;<code>str</code>
+:   Esquema origen.
+
+
+**```p_table_names```** :&ensp;<code>Iterable\[str]</code>
+:   Tablas a procesar.
+
+
+**```p_columna_cliente```** :&ensp;<code>Iterable\[str]</code>
+:   Columnas candidatas de cliente.
+
+
+**```p_start_dt```** :&ensp;<code>str</code>
+:   Fecha mínima opcional para el spine.
+
+
+**```p_sens```** :&ensp;<code>float</code>
+:   Sensibilidad para límites de volumen.
+
+
+
+Returns
+-----=
+`Tuple[DataFrame | None, list]`
+:   (volumen final, errores).
+
+
+
+
+### Function `get_source_info_task` {#id}
+
+
+
+
+>     def get_source_info_task(
+>         p_source_catalog: str,
+>         p_source_schema: str
+>     ) ‑> List[str]
+
+
+Obtiene la lista de tablas del esquema origen excluyendo prefijos.
+
+Args
+-----=
+**```p_source_catalog```** :&ensp;<code>str</code>
+:   Catálogo origen.
+
+
+**```p_source_schema```** :&ensp;<code>str</code>
+:   Esquema origen.
+
+
+
+Returns
+-----=
+<code>List\[str]</code>
+:   Nombres de tablas del esquema origen.
+
+
+
+
+### Function `orchestrate_qa_profile_task` {#id}
+
+
+
+
+>     def orchestrate_qa_profile_task(
+>         p_columna_cliente: Iterable[str],
+>         p_start_dt=''
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Orquesta el cálculo del perfil mensual QA por columna.
+
+Args
+-----=
+**```p_columna_cliente```** :&ensp;<code>Iterable\[str]</code>
+:   Columnas candidatas de cliente.
+
+
+**```p_start_dt```** :&ensp;<code>str</code>
+:   Fecha mínima opcional para el spine.
+
+
+
+Returns
+-----=
+<code>DataFrame</code>
+:   DataFrame final de perfil QA.
+
+
+
+
+### Function `orchestrate_qa_volume_task` {#id}
+
+
+
+
+>     def orchestrate_qa_volume_task(
+>         p_columna_cliente: Iterable[str],
+>         p_start_dt=''
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Orquesta el cálculo de métricas de volumen QA.
+
+Args
+-----=
+**```p_columna_cliente```** :&ensp;<code>Iterable\[str]</code>
+:   Columnas candidatas de cliente.
+
+
+**```p_start_dt```** :&ensp;<code>str</code>
+:   Fecha mínima opcional para el spine.
+
+
+
+Returns
+-----=
+<code>DataFrame</code>
+:   DataFrame final de volumen QA.
+
+
+
+
+
+
+
+# Module `data_engineering.core.documentation_hive` {#id}
+
+
+
+
+
+
+
+## Functions
+
+
+
+### Function `document_table` {#id}
+
+
+
+
+>     def document_table(
+>         p_db_table,
+>         p_field_description,
+>         p_table_description,
+>         p_partition_col,
+>         p_overwrite
+>     )
+
+
+Adds or updates table and column comments in Hive or Unity Catalog based on metadata
+provided.
+
+
+Args
+-----=
+**```p_db_table```** :&ensp;<code>str</code>
+:   The name of the database and table.
+
+
+**```p_field_description```** :&ensp;<code>dict</code>
+:   A dictionary where keys are column names and values.
+
+
+**```p_table_description```** :&ensp;<code>str</code>
+:   Description for the table.
+
+
+**```p_overwrite```** :&ensp;<code>bool</code>
+:   Whether to overwrite existing descriptions.
+
+
+
+Returns
+-----=
+None
+
+
+### Function `process_product_schemas` {#id}
+
+
+
+
+>     def process_product_schemas(
+>         p_product_folder_path,
+>         p_db_table,
+>         p_table_description,
+>         p_partition_col,
+>         p_overwrite
+>     )
+
+
+Processes all YAML files in the specified folder and applies table and
+column documentation to Hive or Unity Catalog.
+
+
+Args
+-----=
+**```p_product_folder_path```** :&ensp;<code>str</code>
+:   The full path to the folder.
+
+
+**```p_db_table```** :&ensp;<code>str</code>
+:   The name of the database and table.
+
+
+**```p_table_description```** :&ensp;<code>str</code>
+:   Description for the table.
+
+
+**```p_partition_col```** :&ensp;<code>str</code>
+:   The column by which the data should be partitioned.
+
+
+**```p_overwrite```** :&ensp;<code>bool</code>
+:   Whether to overwrite existing descriptions.
+
+
+
+Returns
+-----=
+None
+
+
+
+
+
+# Module `data_engineering.core.load_data_flow` {#id}
+
+
+
+
+
+
+
+## Functions
+
+
+
+### Function `load_data_source_task` {#id}
+
+
+
+
+>     def load_data_source_task(
+>         p_file_path: str,
+>         p_file_extension: str,
+>         p_is_sandbox_load=False
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Loads data from a specified file path using pyspark and converting it into a
+dataframe.
+
+This task uses Spark to read data from a given file path. It supports reading
+different file formats specified by the p_file_extension parameter.
+It logs the process of loading and potential errors.
+
+
+Args
+-----=
+**```p_file_path```** :&ensp;<code>str</code>
+:   The path to the data file.
+
+
+**```p_file_extension```** :&ensp;<code>str</code>
+:   The format of the file to read (parquet or delta files).
+
+
+**```p_is_sandbox_load```** :&ensp;<code>Bool</code>
+:   Flag that tells whether or not we are executing from
+
+
+a sandbox env.
+
+Returns
+-----=
+<code>DataFrame</code>
+:   The DataFrame loaded from the specified file.
+
+
+
+Raises
+-----=
+<code>Exception</code>
+:   An error occurred while reading data from the specified path.
+
+
+The specific error message is logged.
+
+
+### Function `load_raw_data_flow` {#id}
+
+
+
+
+>     def load_raw_data_flow() ‑> pyspark.sql.dataframe.DataFrame
+
+
+Extracts raw data from specified sources, applies date range filtering, and returns
+the DataFrame.
+
+The flow performs the following operations:
+1. Loads global settings and data catalog configurations from YAML files.
+2. Constructs file paths and extensions from the data catalog based on the provided
+key.
+3. Loads data using the constructed file path and file extension.
+4. Applies date range filtering to the loaded data.
+
+
+Returns
+-----=
+<code>DataFrame</code>
+:   The final processed DataFrame.
+
+
+
+Raises
+-----=
+<code>Exception</code>
+:   An error occurred during data loading and processing. The specific
+
+
+error message is logged.
+
+
+### Function `validate_date_range_filter_task` {#id}
+
+
+
+
+>     def validate_date_range_filter_task(
+>         p_df,
+>         p_partition_col: str,
+>         p_input_partition_col: str,
+>         p_start_dt: str,
+>         p_end_dt: str
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Filters a DataFrame by a specified date range and modifies the partition column.
+
+This task filters a DataFrame by a specified date range between <code>p\_start\_dt</code> and
+<code>p\_end\_dt</code> on a specified <code>p\_partition\_col</code>.
+It also transforms the date column and adds an end of month column.
+
+
+Args
+-----=
+**```p_df```** :&ensp;<code>DataFrame</code>
+:   The DataFrame to filter.
+
+
+**```p_partition_col```** :&ensp;<code>str</code>
+:   The column name to filter on.
+
+
+**```p_input_partition_col```** :&ensp;<code>str</code>
+:   The new alias for the transformed date column.
+
+
+**```p_start_dt```** :&ensp;<code>str</code>
+:   The start date for filtering.
+
+
+**```p_end_dt```** :&ensp;<code>str</code>
+:   The end date for filtering.
+
+
+
+Returns
+-----=
+<code>DataFrame</code>
+:   The filtered and transformed DataFrame.
+
+
+
+Raises
+-----=
+<code>Exception</code>
+:   An error occurred while filtering the DataFrame. The specific error
+
+
+message is logged.
+
+
+
+
+
+# Module `data_engineering.core.main_flow` {#id}
+
+
+
+
+
+
+
+## Functions
+
+
+
+### Function `main` {#id}
+
+
+
+
+>     def main()
+
+
+This script, <code>main\_flow.py</code>, serves as the main execution flow for running specific
+data processes in a data engineering environment. Depending on the type of flow
+specified, it will execute different processes such as cataloging, data cleaning, or
+data transformation.
+
+
+Functions
+-----=
+main(): Main function that handles argument parsing, configuration loading,
+date range determination, strategy validation, and data flow execution.
+
+
+Usage
+-----=
+In a local environment, execute this script from the project root using:
+python -m data_engineering.core.main_flow --env <environment> --flow <flow>
+[--overwrite_strategy <strategy>] [--start_dt <start_date>]
+[--end_dt <end_date>] [--nodes <nodes>] [--sanity_check]
+
+
+Arguments
+-----=
+--env (str): The environment in which the flow will be executed. This argument
+is required.
+--flow (str): The main data flow to execute. This argument is required and
+determines which processes will run (e.g., catalog_flow, snapshot_flow,
+transactional_flow, data_transformation_flow).
+--overwrite_strategy (str, optional): Overwrite strategy to use. Can be
+"overwrite" or "overwriteSchema". Defaults to "overwrite".
+--start_dt (str, optional): Start date in 'YYYY-MM-DD' format. If not provided,
+defaults to the first day of the previous month.
+--end_dt (str, optional): End date in 'YYYY-MM-DD' format. If not provided,
+defaults to the last day of the previous month.
+--nodes (str, optional): Specific nodes to execute, separated by commas. If
+provided, only these nodes will be executed.
+--sanity_check (str, optional): Enable/disable sanity_check_flow execution.
+Accepts 'true' (default) or 'false'. Sanity check runs automatically after
+main flows complete, validating data quality. When used with --nodes, runs
+in isolated mode (validates only the specified domain).
+
+Default Behavior:
+    If only the --env and --flow arguments are provided, the script will default to
+    using the start date as the first day of the previous month and the end date as
+    the last day of the previous month. The overwrite strategy will default to
+    "overwrite".
+
+
+Exceptions
+-----=
+ValueError: Raised if an invalid overwrite strategy is provided or if specified
+nodes do not exist in the flow catalog.
+argparse.ArgumentError: Raised if both --start_dt and --end_dt arguments are not
+provided when required.
+
+
+Output
+-----=
+Informational messages about the flow execution, including total execution time
+or any unexpected errors that occur.
+
+
+Examples
+-----=
+##### Example with specific start and end dates
+python -m data_engineering.core.main_flow --env sandbox/sandbox_name --flow         data_transformation_flow --start_dt 2023-01-01 --end_dt 2023-01-31
+
+##### Example with specific nodes
+python -m data_engineering.core.main_flow --env sandbox/sandbox_name --flow         snapshot_flow --nodes customer.customer_flow,customer.income_flow
+
+##### Example with overwrite strategy
+python -m data_engineering.core.main_flow --env sandbox/sandbox_name --flow         catalog_flow --overwrite_strategy overwriteSchema
+
+##### Example with only environment and flow
+python -m data_engineering.core.main_flow         --env sandbox/sandbox_name --flow transactional_flow
+
+
+
+
+
+# Module `data_engineering.core.sanity_check` {#id}
+
+
+
+
+
+## Sub-modules
+
+* [data_engineering.core.sanity_check.base](#data_engineering.core.sanity_check.base)
+* [data_engineering.core.sanity_check.engine](#data_engineering.core.sanity_check.engine)
+* [data_engineering.core.sanity_check.sanity_check_flow](#data_engineering.core.sanity_check.sanity_check_flow)
+* [data_engineering.core.sanity_check.standard_validators](#data_engineering.core.sanity_check.standard_validators)
+* [data_engineering.core.sanity_check.utils](#data_engineering.core.sanity_check.utils)
+
+
+
+
+
+
+
+# Module `data_engineering.core.sanity_check.base` {#id}
+
+
+
+
+
+
+
+
+## Classes
+
+
+
+### Class `BaseValidator` {#id}
+
+
+
+
+>     class BaseValidator(
+>         config: Dict[str, Any],
+>         spark: pyspark.sql.session.SparkSession
+>     )
+
+
+Abstract base class for all validators.
+
+Initialize validator with configuration and Spark session.
+
+
+
+#### Ancestors (in MRO)
+
+* [abc.ABC](#abc.ABC)
+
+
+
+#### Descendants
+
+* [data_engineering.core.sanity_check.standard_validators.StandardConsistencyValidator](#data_engineering.core.sanity_check.standard_validators.StandardConsistencyValidator)
+* [data_engineering.core.sanity_check.standard_validators.StandardDimensionalValidator](#data_engineering.core.sanity_check.standard_validators.StandardDimensionalValidator)
+* [data_engineering.core.sanity_check.standard_validators.StandardDuplicatesValidator](#data_engineering.core.sanity_check.standard_validators.StandardDuplicatesValidator)
+* [data_engineering.core.sanity_check.standard_validators.StandardNullValuesValidator](#data_engineering.core.sanity_check.standard_validators.StandardNullValuesValidator)
+
+
+
+
+
+#### Static methods
+
+
+
+##### `Method coerce_severity` {#id}
+
+
+
+
+>     def coerce_severity(
+>         sev: Any,
+>         default: data_engineering.core.sanity_check.base.QualitySeverity = QualitySeverity.MEDIUM
+>     ) ‑> data_engineering.core.sanity_check.base.QualitySeverity
+
+
+Coerce an arbitrary value into a QualitySeverity with strict validation.
+
+
+Args
+-----=
+**```sev```**
+:   Raw severity value (None, str or QualitySeverity)
+
+
+**```default```**
+:   Default severity if value is None
+
+
+
+Returns
+-----=
+QualitySeverity enum matching the configured value.
+
+Raises
+-----=
+<code>ValueError</code>
+:   If the value is a non-empty, unrecognized severity.
+
+
+
+
+
+#### Methods
+
+
+
+##### Method `validate` {#id}
+
+
+
+
+>     def validate(
+>         self,
+>         p_df: pyspark.sql.dataframe.DataFrame,
+>         p_dataset_name: str
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Execute validation on DataFrame.
+
+
+Args
+-----=
+**```p_df```**
+:   DataFrame to validate
+
+
+**```p_dataset_name```**
+:   Name of dataset being validated
+
+
+
+Returns
+-----=
+DataFrame with validation results
+
+
+### Class `QualitySeverity` {#id}
+
+
+
+
+>     class QualitySeverity(
+>         value,
+>         names=None,
+>         *,
+>         module=None,
+>         qualname=None,
+>         type=None,
+>         start=1
+>     )
+
+
+Severity levels for data quality issues.
+
+
+
+#### Ancestors (in MRO)
+
+* [builtins.str](#builtins.str)
+* [enum.Enum](#enum.Enum)
+
+
+
+
+#### Class variables
+
+
+
+##### Variable `CRITICAL` {#id}
+
+
+
+
+
+
+
+##### Variable `HIGH` {#id}
+
+
+
+
+
+
+
+##### Variable `LOW` {#id}
+
+
+
+
+
+
+
+##### Variable `MEDIUM` {#id}
+
+
+
+
+
+
+
+
+
+
+### Class `ValidationRecord` {#id}
+
+
+
+
+>     class ValidationRecord(
+>         nombre_dataset: str,
+>         columna: str,
+>         validacion: str,
+>         severidad: str,
+>         descripcion: str,
+>         estado: str = 'FAIL',
+>         fecha_ejecucion: Optional[str] = None
+>     )
+
+
+Individual validation result record.
+
+
+
+
+
+#### Class variables
+
+
+
+##### Variable `columna` {#id}
+
+
+
+Type: `str`
+
+
+
+
+##### Variable `descripcion` {#id}
+
+
+
+Type: `str`
+
+
+
+
+##### Variable `estado` {#id}
+
+
+
+Type: `str`
+
+
+
+
+##### Variable `fecha_ejecucion` {#id}
+
+
+
+Type: `Optional[str]`
+
+
+
+
+##### Variable `nombre_dataset` {#id}
+
+
+
+Type: `str`
+
+
+
+
+##### Variable `severidad` {#id}
+
+
+
+Type: `str`
+
+
+
+
+##### Variable `validacion` {#id}
+
+
+
+Type: `str`
+
+
+
+
+
+
+
+#### Methods
+
+
+
+##### Method `to_dict` {#id}
+
+
+
+
+>     def to_dict(
+>         self
+>     ) ‑> Dict[str, Any]
+
+
+Convert to dictionary.
+
+
+### Class `ValidationStatus` {#id}
+
+
+
+
+>     class ValidationStatus(
+>         value,
+>         names=None,
+>         *,
+>         module=None,
+>         qualname=None,
+>         type=None,
+>         start=1
+>     )
+
+
+Status of a validation check.
+
+
+
+#### Ancestors (in MRO)
+
+* [builtins.str](#builtins.str)
+* [enum.Enum](#enum.Enum)
+
+
+
+
+#### Class variables
+
+
+
+##### Variable `FAIL` {#id}
+
+
+
+
+
+
+
+##### Variable `PASS` {#id}
+
+
+
+
+
+
+
+##### Variable `SKIPPED` {#id}
+
+
+
+
+
+
+
+##### Variable `WARN` {#id}
+
+
+
+
+
+
+
+
+
+
+
+
+# Module `data_engineering.core.sanity_check.engine` {#id}
+
+
+
+
+
+
+
+## Functions
+
+
+
+### Function `df_is_empty` {#id}
+
+
+
+
+>     def df_is_empty(
+>         p_df: pyspark.sql.dataframe.DataFrame
+>     ) ‑> bool
+
+
+Efficient check whether a DataFrame is empty without forcing shuffle.
+
+
+Args
+-----=
+**```p_df```**
+:   Spark DataFrame to check
+
+
+
+Returns
+-----=
+True if DataFrame has no rows, False otherwise
+
+
+### Function `get_spark` {#id}
+
+
+
+
+>     def get_spark() ‑> databricks.connect.session.DatabricksSession
+
+
+Get or create a Databricks session (singleton pattern, thread-safe).
+
+
+Returns
+-----=
+Active or newly created DatabricksSession instance.
+
+
+
+## Classes
+
+
+
+### Class `FlowExecutionContext` {#id}
+
+
+
+
+>     class FlowExecutionContext(
+>         workflow: str,
+>         flow_name: str,
+>         node_name: Optional[str],
+>         domain: Optional[str],
+>         is_isolated_execution: bool,
+>         start_dt: Optional[str],
+>         end_dt: Optional[str]
+>     )
+
+
+Captures execution context from environment variables.
+
+
+
+
+
+#### Class variables
+
+
+
+##### Variable `domain` {#id}
+
+
+
+Type: `Optional[str]`
+
+
+
+
+##### Variable `end_dt` {#id}
+
+
+
+Type: `Optional[str]`
+
+
+
+
+##### Variable `flow_name` {#id}
+
+
+
+Type: `str`
+
+
+
+
+##### Variable `is_isolated_execution` {#id}
+
+
+
+Type: `bool`
+
+
+
+
+##### Variable `node_name` {#id}
+
+
+
+Type: `Optional[str]`
+
+
+
+
+##### Variable `start_dt` {#id}
+
+
+
+Type: `Optional[str]`
+
+
+
+
+##### Variable `workflow` {#id}
+
+
+
+Type: `str`
+
+
+
+
+
+
+#### Static methods
+
+
+
+##### `Method from_environment` {#id}
+
+
+
+
+>     def from_environment() ‑> data_engineering.core.sanity_check.engine.FlowExecutionContext
+
+
+Build context from environment variables.
+
+
+
+### Class `LayerUtils` {#id}
+
+
+
+
+>     class LayerUtils
+
+
+Utility functions for layer-specific sanity check operations.
+
+
+
+
+
+#### Class variables
+
+
+
+##### Variable `LAYER_DEPENDENCIES` {#id}
+
+
+
+
+
+
+
+##### Variable `VALID_LAYERS` {#id}
+
+
+
+
+
+
+
+
+
+#### Static methods
+
+
+
+##### `Method check_quality_gate` {#id}
+
+
+
+
+>     def check_quality_gate(
+>         p_dataset_name: str,
+>         p_start_date: str,
+>         p_end_date: str,
+>         p_layer: str = 'raw_data'
+>     ) ‑> bool
+
+
+Check if a dataset passed its quality gate for a date range.
+
+
+Args
+-----=
+**```p_dataset_name```**
+:   Name of the dataset
+
+
+**```p_start_date```**
+:   Start date for the quality gate check (YYYY-MM-DD)
+
+
+**```p_end_date```**
+:   End date for the quality gate check (YYYY-MM-DD)
+
+
+**```p_layer```**
+:   Layer of the dataset (default: "raw_data")
+
+
+
+Returns
+-----=
+False if critical failures found, True if passed or table not yet created
+
+
+##### `Method consolidate_results` {#id}
+
+
+
+
+>     def consolidate_results(
+>         p_results: List[pyspark.sql.dataframe.DataFrame]
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Consolidate multiple DataFrame results into a single DataFrame.
+
+
+Args
+-----=
+**```p_results```**
+:   List of DataFrames to consolidate.
+
+
+
+Returns
+-----=
+A single DataFrame containing all valid results.
+
+
+##### `Method create_layer_config_loader` {#id}
+
+
+
+
+>     def create_layer_config_loader(
+>         p_layer_name: str,
+>         p_domain_filter: Optional[str] = None
+>     ) ‑> Any
+
+
+Create a config loader function for a specific layer.
+
+
+##### `Method create_layer_validator` {#id}
+
+
+
+
+>     def create_layer_validator(
+>         p_layer_name: str
+>     ) ‑> Any
+
+
+Create a validate_dataset function for a specific layer.
+
+
+##### `Method get_dataset_config` {#id}
+
+
+
+
+>     def get_dataset_config(
+>         p_config_all: Dict[str, Any],
+>         p_dataset_name: str
+>     ) ‑> Optional[Dict[str, Any]]
+
+
+Get configuration for a specific dataset.
+
+
+Args
+-----=
+**```p_config_all```**
+:   Dictionary containing all dataset configurations.
+
+
+**```p_dataset_name```**
+:   Name of the dataset to retrieve configuration for.
+
+
+
+Returns
+-----=
+Configuration dictionary for the specified dataset.
+
+
+##### `Method load_config` {#id}
+
+
+
+
+>     def load_config(
+>         p_path: str,
+>         p_domain_filter: Optional[str] = None
+>     ) ‑> Dict[str, Any]
+
+
+Load sanity check configuration from YAML files.
+
+
+Args
+-----=
+**```p_path```**
+:   Path to the configuration file or directory.
+
+
+**```p_domain_filter```**
+:   Optional domain filter to select specific configurations.
+
+
+
+Returns
+-----=
+Merged configuration dictionary.
+
+
+##### `Method load_dataset` {#id}
+
+
+
+
+>     def load_dataset(
+>         p_metadata: Dict[str, Any],
+>         p_config: Dict[str, Any],
+>         p_start_dt: Optional[str] = None,
+>         p_end_dt: Optional[str] = None
+>     ) ‑> Optional[pyspark.sql.dataframe.DataFrame]
+
+
+Load a dataset (Parquet or Delta/SQL) with optional date filtering.
+
+
+Args
+-----=
+**```p_metadata```**
+:   Dataset metadata (dataset_name, path or database, date_col)
+
+
+**```p_config```**
+:   Dataset quality configuration
+
+
+**```p_start_dt```**
+:   Start date for filtering; skipped when None
+
+
+**```p_end_dt```**
+:   End date for filtering; skipped when None
+
+
+
+Returns
+-----=
+Filtered DataFrame or None if an error occurs.
+
+
+##### `Method load_metadata_from_catalog` {#id}
+
+
+
+
+>     def load_metadata_from_catalog(
+>         p_catalog_layer: str,
+>         p_data_layer: str
+>     ) ‑> List[Dict[str, Any]]
+
+
+Load dataset metadata from a downstream layer's data_catalog.yml.
+
+
+Args
+-----=
+**```p_catalog_layer```**
+:   Layer containing the data catalog.
+
+
+**```p_data_layer```**
+:   Target data layer name (e.g., 'data_cleaning')
+
+
+
+Returns
+-----=
+List of metadata dictionaries or empty list if catalog not found
+
+
+##### `Method log_summary` {#id}
+
+
+
+
+>     def log_summary(
+>         p_logger: Any,
+>         p_summary: Union[Dict[str, Any], List[Any]]
+>     ) ‑> None
+
+
+Log the validation summary.
+
+
+Args
+-----=
+**```p_logger```**
+:   Logger instance to use for logging.
+
+
+**```p_summary```**
+:   Validation summary to log.
+
+
+
+
+##### `Method process_all_datasets` {#id}
+
+
+
+
+>     def process_all_datasets(
+>         p_datasets_metadata: List[Dict[str, Any]],
+>         p_config_all: Dict[str, Any],
+>         p_validate_func,
+>         p_start_dt: Optional[str] = None,
+>         p_end_dt: Optional[str] = None
+>     ) ‑> Tuple[Optional[pyspark.sql.dataframe.DataFrame], List[Dict[str, Any]]]
+
+
+Generic function to process all datasets and collect validation results.
+
+
+Args
+-----=
+**```p_datasets_metadata```**
+:   List of dataset metadata dictionaries
+
+
+**```p_config_all```**
+:   Full configuration for all datasets
+
+
+**```p_validate_func```**
+:   Callable that validates a single dataset
+
+
+**```p_start_dt```**
+:   Optional start date for filtering
+
+
+**```p_end_dt```**
+:   Optional end date for filtering
+
+
+
+Returns
+-----=
+Tuple of (consolidated_result_dataframe, critical_summaries_list)
+
+
+##### `Method process_all_datasets_with_cache` {#id}
+
+
+
+
+>     def process_all_datasets_with_cache(
+>         p_datasets_metadata: List[Dict[str, Any]],
+>         p_config_all: Dict[str, Any],
+>         p_loader_func,
+>         p_validate_func,
+>         p_start_dt: Optional[str] = None,
+>         p_end_dt: Optional[str] = None
+>     ) ‑> Tuple[Optional[pyspark.sql.dataframe.DataFrame], List[Dict[str, Any]]]
+
+
+Process all datasets with caching for large date ranges.
+
+
+Args
+-----=
+**```p_datasets_metadata```**
+:   List of dataset metadata dictionaries
+
+
+**```p_config_all```**
+:   Full configuration for all datasets
+
+
+**```p_loader_func```**
+:   Callable to load dataset for date range
+
+
+**```p_validate_func```**
+:   Callable that validates dataset for month
+
+
+**```p_start_dt```**
+:   Start date for filtering
+
+
+**```p_end_dt```**
+:   End date for filtering
+
+
+
+Returns
+-----=
+Tuple of (consolidated results DataFrame, critical summaries list)
+
+
+##### `Method validate_single_dataset` {#id}
+
+
+
+
+>     def validate_single_dataset(
+>         p_metadata: Dict[str, Any],
+>         p_config_all: Dict[str, Any],
+>         p_load_func,
+>         p_validate_func,
+>         p_log_func,
+>         p_start_dt: Optional[str] = None,
+>         p_end_dt: Optional[str] = None
+>     ) ‑> Tuple[Optional[pyspark.sql.dataframe.DataFrame], Optional[Dict[str, Any]]]
+
+
+Generic function to validate a single dataset with layer-specific log.
+
+
+Args
+-----=
+**```p_metadata```**
+:   Metadata dict for the dataset.
+
+
+**```p_config_all```**
+:   Full configuration dict for all datasets.
+
+
+**```p_load_func```**
+:   Callable to load the dataset.
+
+
+**```p_validate_func```**
+:   Callable to validate the dataset.
+
+
+**```p_log_func```**
+:   Callable to log the summary results.
+
+
+**```p_start_dt```**
+:   Optional start date for filtering.
+
+
+**```p_end_dt```**
+:   Optional end date for filtering.
+
+
+
+Returns
+-----=
+Tuple of (results_dataframe, summary_dictionary)
+
+
+
+### Class `QualityEngine` {#id}
+
+
+
+
+>     class QualityEngine
+
+
+Main engine for executing quality validations.
+
+Initialize QualityEngine with validator registry.
+
+
+
+
+
+
+
+
+#### Methods
+
+
+
+##### Method `validate` {#id}
+
+
+
+
+>     def validate(
+>         self,
+>         p_df: pyspark.sql.dataframe.DataFrame,
+>         p_dataset_name: str,
+>         p_config: Dict[str, Any],
+>         p_layer: str = 'raw_data'
+>     ) ‑> Tuple[pyspark.sql.dataframe.DataFrame, Dict[str, Any]]
+
+
+Execute validations on a DataFrame.
+
+
+Args
+-----=
+**```p_df```**
+:   DataFrame to validate
+
+
+**```p_dataset_name```**
+:   Name of dataset being validated
+
+
+**```p_config```**
+:   Validation configuration dictionary
+
+
+**```p_layer```**
+:   Data layer name (default: 'raw_data')
+
+
+
+Returns
+-----=
+Tuple of (results_df, summary_dict) with validation outcomes
+
+
+### Class `ValidatorRegistry` {#id}
+
+
+
+
+>     class ValidatorRegistry
+
+
+Central registry for validators with layer-specific support.
+
+Initialize registry with layer-specific validator overrides.
+
+
+
+
+
+
+
+
+#### Methods
+
+
+
+##### Method `get_validator_class` {#id}
+
+
+
+
+>     def get_validator_class(
+>         self,
+>         p_validator_type: str,
+>         p_layer: Optional[str] = None
+>     ) ‑> Optional[Type[data_engineering.core.sanity_check.base.BaseValidator]]
+
+
+Get validator class by type and optional layer (thread-safe).
+
+
+Args
+-----=
+**```p_validator_type```**
+:   Type of validator to retrieve
+
+
+**```p_layer```**
+:   Optional layer name for layer-specific lookup
+
+
+
+Returns
+-----=
+Validator class if found, None otherwise
+
+
+##### Method `get_validators` {#id}
+
+
+
+
+>     def get_validators(
+>         self,
+>         p_validator_types: List[str],
+>         p_config: Dict[str, Any],
+>         p_layer: Optional[str] = None
+>     ) ‑> List[data_engineering.core.sanity_check.base.BaseValidator]
+
+
+Build list of validator instances.
+
+
+Args
+-----=
+**```p_validator_types```**
+:   List of validator type names to instantiate
+
+
+**```p_config```**
+:   Configuration dict for all validators
+
+
+**```p_layer```**
+:   Optional layer name for layer-specific lookup
+
+
+
+Returns
+-----=
+List of instantiated BaseValidator objects
+
+
+##### Method `register_validator` {#id}
+
+
+
+
+>     def register_validator(
+>         self,
+>         p_validator_type: str,
+>         p_validator_class: Type[data_engineering.core.sanity_check.base.BaseValidator],
+>         p_layer: Optional[str] = None
+>     ) ‑> None
+
+
+Register or override a validator (thread-safe).
+
+
+Args
+-----=
+**```p_validator_type```**
+:   Type of validator (duplicates, null_values, etc.)
+
+
+**```p_validator_class```**
+:   Validator class to register
+
+
+**```p_layer```**
+:   Optional layer name for layer-specific registration
+
+
+
+
+
+
+# Module `data_engineering.core.sanity_check.sanity_check_flow` {#id}
+
+
+
+
+
+
+
+## Functions
+
+
+
+### Function `check_quality_gate_task` {#id}
+
+
+
+
+>     def check_quality_gate_task(
+>         p_dataset_name: str,
+>         p_start_date: str,
+>         p_end_date: str,
+>         p_layer: str = 'raw_data'
+>     ) ‑> None
+
+
+Task to check if a specific dataset is allowed to proceed.
+
+
+Args
+-----=
+**```p_dataset_name```**
+:   Name of the dataset to check
+
+
+**```p_start_date```**
+:   Start date for range-based check (YYYY-MM-DD format)
+
+
+**```p_end_date```**
+:   End date for range-based check (YYYY-MM-DD format)
+
+
+**```p_layer```**
+:   Layer name
+
+
+
+Raises
+-----=
+<code>RuntimeError</code>
+:   When the dataset has CRITICAL quality failures (blocks flow).
+
+
+
+
+### Function `create_sanity_check_flow` {#id}
+
+
+
+
+>     def create_sanity_check_flow(
+>         layer_name: str,
+>         loader_func: Callable,
+>         tag_name: str,
+>         db_suffix: str,
+>         dependency_mapping: Optional[Dict[str, str]] = None,
+>         use_catalog: bool = False,
+>         create_missing_metadata_func: Optional[Callable] = None
+>     ) ‑> Callable
+
+
+Generate a parameterized sanity check Prefect flow for any data layer.
+
+
+Args
+-----=
+**```layer_name```**
+:   Name of the data layer.
+
+
+**```loader_func```**
+:   Callable to load datasets.
+
+
+**```tag_name```**
+:   Short tag for Prefect tasks.
+
+
+**```db_suffix```**
+:   Database suffix for the layer.
+
+
+**```dependency_mapping```**
+:   Optional dict mapping workflow contexts to dependency.
+
+
+**```use_catalog```**
+:   If True, load metadata from downstream layer's catalog.
+
+
+**```create_missing_metadata_func```**
+:   Optional function to create fallback metadata.
+
+
+
+Returns
+-----=
+A Prefect @flow decorated function ready to execute.
+
+
+### Function `execute_sanity_check` {#id}
+
+
+
+
+>     def execute_sanity_check(
+>         p_layer_name: str,
+>         p_nodes: list = None,
+>         p_is_upstream: bool = False
+>     ) ‑> None
+
+
+Execute sanity check for a workflow, optionally traversing upstream dependencies.
+
+
+Args
+-----=
+**```p_layer_name```**
+:   Layer name to validate (e.g. 'raw_data', 'data_cleaning').
+
+
+**```p_nodes```**
+:   List of node names to scope the validation (isolated mode).
+
+
+**```p_is_upstream```**
+:   If True, resolves and validates all upstream dependencies first.
+
+
+
+Raises
+-----=
+<code>RuntimeError</code>
+:   When the sanity check or any upstream check fails.
+
+
+
+
+### Function `is_quality_gate_error` {#id}
+
+
+
+
+>     def is_quality_gate_error(
+>         p_error_msg: str
+>     ) ‑> bool
+
+
+Return True if a RuntimeError originated from the quality gate or sanity check.
+
+
+Args
+-----=
+**```p_error_msg```**
+:   String representation of the RuntimeError.
+
+
+
+Returns
+-----=
+<code>bool</code>
+:   True if error originated from quality gate/sanity check, False otherwise.
+
+
+
+
+### Function `pre_save_quality_checks` {#id}
+
+
+
+
+>     def pre_save_quality_checks(
+>         p_df: pyspark.sql.dataframe.DataFrame,
+>         p_file_name: str,
+>         p_data_subfolder: str,
+>         p_output_domain: str,
+>         p_date_col: Optional[str] = None
+>     ) ‑> None
+
+
+Run sanity check and quality gate validations before persisting a dataset.
+
+
+Args
+-----=
+**```p_df```**
+:   The DataFrame about to be persisted.
+
+
+**```p_file_name```**
+:   Output dataset / table name being saved.
+
+
+**```p_data_subfolder```**
+:   Active layer folder (e.g. 'data_cleaning').
+
+
+**```p_output_domain```**
+:   Domain being processed (e.g. 'customer').
+
+
+**```p_date_col```**
+:   Partition/date column used to split validation by month.
+
+
+
+Raises
+-----=
+<code>RuntimeError</code>
+:   When sanity check fails or quality gate blocks persistence.
+
+
+
+
+### Function `prepare_flow_sanity_checks` {#id}
+
+
+
+
+>     def prepare_flow_sanity_checks(
+>         p_layer_name: str,
+>         p_nodes: list = None,
+>         p_sanity_check: bool = False
+>     ) ‑> None
+
+
+Prepare environment and run upstream sanity checks before main flows execute.
+
+
+Args
+-----=
+**```p_layer_name```**
+:   Active workflow layer name.
+
+
+**```p_nodes```**
+:   List of nodes being executed; non-None means isolated mode.
+
+
+**```p_sanity_check```**
+:   Whether sanity checks are enabled.
+
+
+
+
+### Function `resolve_node_dependencies` {#id}
+
+
+
+
+>     def resolve_node_dependencies(
+>         node_name: str,
+>         layer: str = 'raw_data'
+>     ) ‑> Optional[Set[str]]
+
+
+Resolve which datasets a specific node depends on.
+
+
+Args
+-----=
+**```node_name```**
+:   Name of the node
+
+
+**```layer```**
+:   Data layer
+
+
+
+Returns
+-----=
+Set of dataset names the node depends on, or None if not found
+
+
+### Function `validation_results` {#id}
+
+
+
+
+>     def validation_results(
+>         df_results: pyspark.sql.dataframe.DataFrame,
+>         layer: str = 'raw_data',
+>         **kwargs
+>     ) ‑> None
+
+
+Persist validation results using unified save_data_flow.
+
+
+Args
+-----=
+**```df_results```**
+:   DataFrame with validation records.
+
+
+**```layer```**
+:   Data layer.
+
+
+
+
+
+
+
+# Module `data_engineering.core.sanity_check.standard_validators` {#id}
+
+
+
+
+
+
+
+
+## Classes
+
+
+
+### Class `StandardConsistencyValidator` {#id}
+
+
+
+
+>     class StandardConsistencyValidator(
+>         config: Dict[str, Any],
+>         spark: pyspark.sql.session.SparkSession
+>     )
+
+
+Validates dataset consistency based on SQL-like rules and constraints.
+
+Initialize validator with configuration and Spark session.
+
+
+
+#### Ancestors (in MRO)
+
+* [data_engineering.core.sanity_check.base.BaseValidator](#data_engineering.core.sanity_check.base.BaseValidator)
+* [abc.ABC](#abc.ABC)
+
+
+
+
+
+
+
+#### Methods
+
+
+
+##### Method `validate` {#id}
+
+
+
+
+>     def validate(
+>         self,
+>         p_df: pyspark.sql.dataframe.DataFrame,
+>         p_dataset_name: str
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Validate dataset consistency based on SQL-like rules.
+
+The validation performs the following operations:
+1. Load consistency rules from configuration (rules array)
+2. Build aggregation expressions for all rules (single-pass optimization)
+3. Execute batch aggregation and evaluate each rule
+4. Generate FAIL/PASS records with rule-specific severity levels
+
+
+Args
+-----=
+**```p_df```**
+:   DataFrame to validate
+
+
+**```p_dataset_name```**
+:   Name of dataset being validated
+
+
+
+Returns
+-----=
+DataFrame with validation results per rule
+
+
+### Class `StandardDimensionalValidator` {#id}
+
+
+
+
+>     class StandardDimensionalValidator(
+>         config: Dict[str, Any],
+>         spark: pyspark.sql.session.SparkSession
+>     )
+
+
+Validates dimensional attributes against allowed values
+
+Initialize validator with configuration and Spark session.
+
+
+
+#### Ancestors (in MRO)
+
+* [data_engineering.core.sanity_check.base.BaseValidator](#data_engineering.core.sanity_check.base.BaseValidator)
+* [abc.ABC](#abc.ABC)
+
+
+
+
+#### Class variables
+
+
+
+##### Variable `DEFAULT_FAIL_SEVERITY` {#id}
+
+
+
+
+
+
+
+
+
+
+#### Methods
+
+
+
+##### Method `validate` {#id}
+
+
+
+
+>     def validate(
+>         self,
+>         p_df: pyspark.sql.dataframe.DataFrame,
+>         p_dataset_name: str
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Validate dimensional attributes against allowed values/catalog.
+
+The validation performs the following operations:
+1. Load dimensional constraints and whitelist configurations
+2. Build aggregation expressions for all dimensions in single scan
+3. Count invalid (null or out-of-domain) values per dimension
+4. Generate FAIL records for dimensions with invalid values
+
+
+Args
+-----=
+**```p_df```**
+:   DataFrame to validate
+
+
+**```p_dataset_name```**
+:   Name of dataset being validated
+
+
+
+Returns
+-----=
+DataFrame with validation results per dimension
+
+
+### Class `StandardDuplicatesValidator` {#id}
+
+
+
+
+>     class StandardDuplicatesValidator(
+>         config: Dict[str, Any],
+>         spark: pyspark.sql.session.SparkSession
+>     )
+
+
+Validates and detects duplicate records based on primary key configuration.
+
+Initialize validator with configuration and Spark session.
+
+
+
+#### Ancestors (in MRO)
+
+* [data_engineering.core.sanity_check.base.BaseValidator](#data_engineering.core.sanity_check.base.BaseValidator)
+* [abc.ABC](#abc.ABC)
+
+
+
+
+#### Class variables
+
+
+
+##### Variable `DEFAULT_FAIL_SEVERITY` {#id}
+
+
+
+
+
+
+
+
+
+
+#### Methods
+
+
+
+##### Method `validate` {#id}
+
+
+
+
+>     def validate(
+>         self,
+>         p_df: pyspark.sql.dataframe.DataFrame,
+>         p_dataset_name: str
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Validate for duplicate primary keys.
+
+The validation performs the following operations:
+1. Resolve primary keys from configuration (primary_key, pk, unique_id)
+2. Filter null values from key columns
+3. Count duplicates using groupBy aggregation
+4. Generate validation records with PASS/FAIL status
+
+
+Args
+-----=
+**```p_df```**
+:   DataFrame to validate
+
+
+**```p_dataset_name```**
+:   Name of dataset being validated
+
+
+
+Returns
+-----=
+DataFrame with validation results
+
+
+### Class `StandardNullValuesValidator` {#id}
+
+
+
+
+>     class StandardNullValuesValidator(
+>         config: Dict[str, Any],
+>         spark: pyspark.sql.session.SparkSession
+>     )
+
+
+Validates null value percentages against configured thresholds.
+
+Initialize validator with configuration and Spark session.
+
+
+
+#### Ancestors (in MRO)
+
+* [data_engineering.core.sanity_check.base.BaseValidator](#data_engineering.core.sanity_check.base.BaseValidator)
+* [abc.ABC](#abc.ABC)
+
+
+
+
+#### Class variables
+
+
+
+##### Variable `DEFAULT_FAIL_SEVERITY` {#id}
+
+
+
+
+
+
+
+
+
+
+#### Methods
+
+
+
+##### Method `validate` {#id}
+
+
+
+
+>     def validate(
+>         self,
+>         p_df: pyspark.sql.dataframe.DataFrame,
+>         p_dataset_name: str
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Validate null value percentages with optimized single-pass aggregation.
+
+The validation performs the following operations:
+1. Resolve null thresholds from configuration.
+2. Calculate total row count and null counts per column in single aggregation
+3. Compare null percentages against configured thresholds
+4. Generate FAIL records for columns exceeding thresholds
+
+
+Args
+-----=
+**```p_df```**
+:   DataFrame to validate
+
+
+**```p_dataset_name```**
+:   Name of dataset being validated
+
+
+
+Returns
+-----=
+DataFrame with validation results per column
+
+
+
+
+# Module `data_engineering.core.sanity_check.utils` {#id}
+
+
+
+
+
+
+
+## Functions
+
+
+
+### Function `create_record` {#id}
+
+
+
+
+>     def create_record(
+>         p_dataset_name: str,
+>         p_check_name: str,
+>         p_category: str,
+>         p_severity: data_engineering.core.sanity_check.base.QualitySeverity,
+>         p_description: str,
+>         p_status: data_engineering.core.sanity_check.base.ValidationStatus = ValidationStatus.FAIL
+>     ) ‑> data_engineering.core.sanity_check.base.ValidationRecord
+
+
+Create a validation record with unified structure.
+
+
+Args
+-----=
+**```p_dataset_name```**
+:   Name of the dataset being validated
+
+
+**```p_check_name```**
+:   Name of the specific check or column
+
+
+**```p_category```**
+:   Validation category
+
+
+**```p_severity```**
+:   Severity level (LOW, MEDIUM, HIGH, CRITICAL)
+
+
+**```p_description```**
+:   Human-readable description of the validation result
+
+
+**```p_status```**
+:   Validation status (PASS, FAIL, WARN, SKIPPED)
+
+
+
+Returns
+-----=
+ValidationRecord instance with all fields populated
+
+
+### Function `to_dataframe` {#id}
+
+
+
+
+>     def to_dataframe(
+>         p_spark: pyspark.sql.session.SparkSession,
+>         p_records: List[data_engineering.core.sanity_check.base.ValidationRecord]
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Convert validation records to Spark DataFrame safely.
+
+
+Args
+-----=
+**```p_spark```**
+:   Active SparkSession
+
+
+**```p_records```**
+:   List of ValidationRecord instances
+
+
+
+Returns
+-----=
+DataFrame with schema matching VALIDATION_RESULT_SCHEMA
+
+
+
+## Classes
+
+
+
+### Class `ConfigLoader` {#id}
+
+
+
+
+>     class ConfigLoader
+
+
+Centralized YAML configuration loader with standardized error handling.
+
+
+
+
+
+
+
+#### Static methods
+
+
+
+##### `Method load_global_settings` {#id}
+
+
+
+
+>     def load_global_settings(
+>         p_root_dir: Optional[str] = None
+>     ) ‑> Dict[str, Any]
+
+
+Load global_settings.yml with company and environment info.
+
+
+Args
+-----=
+**```p_root_dir```**
+:   Root directory (auto-detected if None)
+
+
+
+Returns
+-----=
+Global settings dictionary with company, environment, catalog config
+
+
+##### `Method load_yaml` {#id}
+
+
+
+
+>     def load_yaml(
+>         p_file_path: str,
+>         p_config_name: str,
+>         p_fallback_value=None
+>     )
+
+
+Load YAML config file with error handling and caching.
+
+
+Args
+-----=
+**```p_file_path```**
+:   Path to the YAML file
+
+
+**```p_config_name```**
+:   Human-readable config name for error messages
+
+
+**```p_fallback_value```**
+:   Default value if file not found or load fails
+
+
+
+Returns
+-----=
+Parsed YAML content or fallback value
+
+
+
+### Class `EnvironmentConfig` {#id}
+
+
+
+
+>     class EnvironmentConfig
+
+
+Unified access to environment variables with caching and validation.
+
+
+
+
+
+#### Class variables
+
+
+
+##### Variable `DEFAULT_ENVIRONMENT` {#id}
+
+
+
+
+
+
+
+##### Variable `ENV_VAR_ENVIRONMENT` {#id}
+
+
+
+
+
+
+
+
+
+#### Static methods
+
+
+
+##### `Method clear_cache` {#id}
+
+
+
+
+>     def clear_cache()
+
+
+Clear the cache (useful for testing).
+
+
+##### `Method get_catalog_name` {#id}
+
+
+
+
+>     def get_catalog_name(
+>         p_root_dir: Optional[str] = None
+>     ) ‑> str
+
+
+Get Databricks catalog name following project conventions.
+
+
+Args
+-----=
+**```p_root_dir```**
+:   Root directory path (auto-detected if None)
+
+
+
+Returns
+-----=
+Catalog identifier constructed from company and environment
+
+
+##### `Method get_company` {#id}
+
+
+
+
+>     def get_company(
+>         p_root_dir: Optional[str] = None
+>     ) ‑> str
+
+
+Get company name from global settings (cached).
+
+
+Args
+-----=
+**```p_root_dir```**
+:   Root directory path (auto-detected if None)
+
+
+
+Returns
+-----=
+Company identifier from global settings or default 'bi'
+
+
+##### `Method get_environment` {#id}
+
+
+
+
+>     def get_environment() ‑> str
+
+
+Get and validate environment configuration (cached).
+
+
+Returns
+-----=
+Environment name (dev, prod, etc.)
+
+Raises
+-----=
+<code>ValueError</code>
+:   If environment variable is empty after resolution
+
+
+
+
+##### `Method get_root_dir` {#id}
+
+
+
+
+>     def get_root_dir() ‑> str
+
+
+Return the repository root directory.
+
+Preference order:
+- Environment variable <code>root\_dir</code>
+- Cached value
+- Auto-detected relative to this file
+
+
+
+
+
+# Module `data_engineering.core.save_data_flow` {#id}
+
+
+
+
+
+
+
+## Functions
+
+
+
+### Function `save_data_flow` {#id}
+
+
+
+
+>     def save_data_flow(
+>         p_output_df,
+>         p_mode: str = None
+>     )
+
+
+Saves processed data into a Delta format, applying configurations from a YAML file.
+
+The flow performs the following operations:
+1. Loads global settings and data catalog configurations from YAML files.
+2. Constructs the output file path using the provided key and environment settings.
+3. Saves the data in Delta format using the appropriate overwrite strategy and
+partition column.
+
+
+Args
+-----=
+**```p_output_df```** :&ensp;<code>DataFrame</code>
+:   The DataFrame to be saved.
+
+
+**```p_mode```** :&ensp;<code>str</code>, optional
+:   Mode of saving data. Defaults to None.
+
+
+
+Returns
+-----=
+<code>None</code>
+:   This flow does not return a value, but it saves the processed data.
+
+
+
+Raises
+-----=
+<code>Exception</code>
+:   An error occurred while saving the data. The specific error message
+
+
+is logged.
+
+
+### Function `save_delta_file_task` {#id}
+
+
+
+
+>     def save_delta_file_task(
+>         p_output_df,
+>         p_folder_name: str,
+>         p_overwrite_strategy: str,
+>         p_partition_col: str,
+>         p_table_folder: str,
+>         p_schema: str,
+>         p_table_description: str,
+>         p_mode: str = None
+>     )
+
+
+Saves a DataFrame as a Delta file.
+
+This task writes a DataFrame in Delta format to the specified folder. It uses the
+overwrite strategy to determine whether to overwrite the schema or not and
+partitions the data by the specified partition column.
+
+Every file from any previous version older than seven days (168 hours) wil be
+deleted.
+
+
+Args
+-----=
+**```p_output_df```** :&ensp;<code>DataFrame</code>
+:   The DataFrame to save.
+
+
+**```p_folder_name```** :&ensp;<code>str</code>
+:   The folder where the Delta file will be saved.
+
+
+**```p_overwrite_strategy```** :&ensp;<code>str</code>
+:   The strategy for overwriting data.
+
+
+**```p_partition_col```** :&ensp;<code>str</code>
+:   The column by which the data should be partitioned.
+
+
+**```p_table_folder```** :&ensp;<code>str</code>
+:   Output folder name.
+
+
+**```p_schema```** :&ensp;<code>str</code>
+:   Represents a logical grouping of data objects.
+
+
+p_table_description (str) : table description
+**```p_mode```** :&ensp;<code>str</code>, optional
+:   Mode of saving data.
+
+
+
+
+
+
+
+# Module `data_engineering.core.utils` {#id}
+
+
+
+
+
+
+
+## Functions
+
+
+
+### Function `add_prefix_to_columns_task` {#id}
+
+
+
+
+>     def add_prefix_to_columns_task(
+>         p_data: DataFrame,
+>         p_prefix: str,
+>         p_exclude_columns=['id_cliente', 'cuenta_corporativa', 'descripcion_tipo_cuenta', '_observ_end_dt', '_observ_start_dt']
+>     )
+
+
+Function that renames all column names of a given dataframe based on
+<code>p\_prefix</code> as a prefix with the exception of the column names in
+<code>p\_exclude columns</code>.
+
+
+
+Args
+-----=
+**```p_data```** :&ensp;<code>DataFrame</code>
+:   DataFrame containing the data to proccess.
+
+
+**```p_prefix```** :&ensp;<code>str</code>
+:   Prefix to be concatenated with underscore in
+
+
+<code>p\_data</code> columns.
+**```p_exclude_columns```** :&ensp;<code>list</code>
+:   Names of the columns that will not
+
+
+change.
+
+Returns
+-----=
+<code>DataFrame</code>
+:   DataFrame with the renamed columns.
+
+
+
+
+### Function `arrange_columns` {#id}
+
+
+
+
+>     def arrange_columns(
+>         p_start_cols
+>     )
+
+
+Order the initial columns of the DataFrame
+
+
+Args
+-----=
+**```p_start_cols```** :&ensp;<code>List</code>
+:   Columns to order
+
+
+
+Returns
+-----=
+<code>df</code>
+:   DatraFrame with ordered columns
+
+
+
+
+### Function `convert_df_to_list` {#id}
+
+
+
+
+>     def convert_df_to_list(
+>         p_df,
+>         p_cond
+>     )
+
+
+Convert DataFrame to list
+
+
+Args
+-----=
+**```p_df```** :&ensp;<code>DataFrame</code>
+:   Dataframe to convert.
+
+
+**```p_cond```** :&ensp;<code>str</code>
+:   Condition to filter DataFrame.
+
+
+
+Returns
+-----=
+list(list): List to return.
+
+
+### Function `create_year_month_period_task` {#id}
+
+
+
+
+>     def create_year_month_period_task(
+>         p_dataframe: DataFrame,
+>         p_date_column_name: str
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Creates a new column with the year and month period.
+
+This task calculates the year and the month of <code>p\_date\_column\_name</code> column
+and adds it into <code>p\_dataframe</code> with the name <code>\_particion</code>.
+
+Args
+-----=
+**```p_dataframe```** :&ensp;<code>DataFrame</code>
+:   The DataFrame in which we want to add the year month
+
+
+column.
+**```p_date_column_name```** :&ensp;<code>str</code>
+:   The column name of the the date that will be used
+
+
+to calculate the year month period
+
+Returns
+-----=
+<code>DataFrame</code>
+:   DataFrame with the <code>\_particion</code> column.
+
+
+
+
+### Function `execute_flow` {#id}
+
+
+
+
+>     def execute_flow(
+>         p_module,
+>         p_flow_name,
+>         p_flow
+>     )
+
+
+Executes a specified flow within a given module.
+
+
+Args
+-----=
+**```p_module```**
+:   The module containing the flow to be executed.
+
+
+**```p_flow_name```**
+:   The name of the flow to execute.
+
+
+**```p_flow```**
+:   The type of flow, used to determine specific execution paths.
+
+
+
+
+### Function `execute_flows` {#id}
+
+
+
+
+>     def execute_flows(
+>         p_flows,
+>         p_flow,
+>         p_sanity_check=False,
+>         p_nodes=None,
+>         workflow=None
+>     )
+
+
+Run flows with automatic upstream sanity_checks as preconditions.
+
+Execution Flow (P0: Resilient Node Isolation):
+1. Execute upstream sanity_checks for the workflow (based on dependency chain)
+2. Execute main flows for the workflow (with granular error handling per node)
+3. Execute sanity_check for the current workflow
+
+
+Args
+-----=
+**```p_flows```** :&ensp;<code>list</code>
+:   List of flow names to run.
+
+
+**```p_flow```** :&ensp;<code>str</code>
+:   The type of flow.
+
+
+**```p_sanity_check```** :&ensp;<code>bool</code>
+:   If True, execute sanity_check automatically
+
+
+**```p_nodes```** :&ensp;<code>list</code>
+:   List of nodes being executed (for isolated mode detection).
+
+
+**```workflow```** :&ensp;<code>str</code>
+:   The workflow name
+
+
+
+Returns
+-----=
+<code>dict</code>
+:   Execution results with:
+    - total_nodes: Total nodes to execute
+    - successful: Number of successful nodes
+    - failed: Number of failed nodes (QG failures)
+    - success_rate: Success rate percentage (0-100)
+    - nodes: Dict with successful and failed node lists
+    - details: Extended failure details
+
+
+
+Raises
+-----=
+<code>RuntimeError</code>
+:   If all nodes fail or critical system error occurs.
+
+
+
+
+### Function `import_flow_module` {#id}
+
+
+
+
+>     def import_flow_module(
+>         p_flow: str
+>     )
+
+
+Import a flow module and return it.
+
+
+Args
+-----=
+**```p_flow```** :&ensp;<code>str</code>
+:   Name of the flow to import.
+
+
+
+Returns
+-----=
+<code>module</code>
+:   The imported module.
+
+
+
+Raises
+-----=
+<code>ModuleNotFoundError</code>
+:   If the module is not found.
+
+
+
+
+### Function `is_quality_gate_error` {#id}
+
+
+
+
+>     def is_quality_gate_error(
+>         error_msg: str
+>     ) ‑> bool
+
+
+Default stub for quality gate error checking when sanity_check is disabled.
+
+
+### Function `load_yaml_file` {#id}
+
+
+
+
+>     def load_yaml_file(
+>         p_file_path: str
+>     ) ‑> dict
+
+
+Loads a YAML file.
+
+This function reads a YAML file from the specified path  using yaml.safe_load,
+which ensures that only safe YAML is loaded. This is useful for configuration files.
+
+
+Args
+-----=
+**```p_file_path```** :&ensp;<code>str</code>
+:   The path to the YAML file that should be loaded.
+
+
+
+Returns
+-----=
+<code>dict</code>
+:   A dictionary containing the data loaded from the YAML file.
+
+
+
+Raises
+-----=
+<code>Exception</code>
+:   An error occurred while trying to load the YAML file. The specific
+
+
+error message is logged.
+
+
+### Function `rename_val_columns_task` {#id}
+
+
+
+
+>     def rename_val_columns_task(
+>         p_df: DataFrame
+>     ) ‑> pyspark.sql.dataframe.DataFrame
+
+
+Renames all float or decimal columns in the DataFrame by appending
+<code>\_val</code> as a suffix to their names.
+
+Parameters:
+p_df (DataFrame): Input DataFrame to be processed.
+
+Returns:
+DataFrame: DataFrame with renamed float or decimal columns.
+
+
+### Function `send_message_teams` {#id}
+
+
+
+
+>     def send_message_teams(
+>         p_messages
+>     )
+
+
+Funtion send notification to Teams.
+
+
+Args
+-----=
+**```p_messages```**
+:   Message to send.
+
+
+
+Returns
+-----=
+<code>\_type\_</code>
+:   Menssage in text.
+
+
+
+
+### Function `validate_folders` {#id}
+
+
+
+
+>     def validate_folders(
+>         p_base_module: str,
+>         p_folder: str
+>     )
+
+
+Checks if the specified folder exists.
+
+
+Args
+-----=
+**```p_base_module```** :&ensp;<code>str</code>
+:   The path of the folder to check.
+
+
+**```p_folder```** :&ensp;<code>str</code>
+:   folder to check
+
+
+
+Returns
+-----=
+<code>bool</code>
+:   True if the folder exists, False otherwise.
+
+
+
+
+
+-----
+Generated by *pdoc* 0.11.1 (<https://pdoc3.github.io>).

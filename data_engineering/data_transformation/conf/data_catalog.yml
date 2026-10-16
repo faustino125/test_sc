@@ -1,0 +1,320 @@
+common_delta: &common_delta
+  file_extension: delta
+
+
+transactional: &transactional fecha_transaccion
+snapshot: &snapshot fecha_informacion
+catalog: &catalog fecha_catalogo
+
+Input:
+  cleaned_customer:
+    <<: *common_delta
+    path: "cli_cliente"
+    description: "Información mensual de clientes"
+    partition_col: *snapshot
+
+  cleaned_employee:
+    <<: *common_delta
+    path: "emp_empleado"
+    description: "Información mensual de empleados de la corporación"
+    partition_col: *snapshot
+
+  cleaned_customer_products:
+    <<: *common_delta
+    path: "cli_producto_cliente"
+    description: "Información mensual de todos los productos."
+    partition_col: *snapshot
+
+  cleaned_leads:
+    <<: *common_delta
+    path: "cli_leads"
+    description: "Información mensual de todos los leads por cliente."
+    partition_col: *snapshot
+
+  cleaned_income:
+    <<: *common_delta
+    path: "cli_cliente_planilla"
+    description: "Información mensual de los ingresos de clientes planilla"
+    partition_col: *snapshot
+
+  cleaned_main_address:
+    <<: *common_delta
+    path: "cli_catalogo_direccion_principal"
+    description: "Información sobre dirección principal de los clientes"
+    partition_col: *catalog
+
+  cleaned_ire:
+    <<: *common_delta
+    path: "ire_cliente_juridico"
+    description: "Información mensual de formularios IRE para clientes jurídicos"
+    partition_col: *snapshot
+
+  cleaned_bbk_supplier:
+    <<: *common_delta
+    path: "bbk_pago_proveedor"
+    description: "Información diaria de pagos realizados a proveedores por medio de bi banking"
+    partition_col: *transactional
+
+  cleaned_bel_login:
+    <<: *common_delta
+    path: "bel_inicio_sesion"
+    description: "Información sobre la sesión de cada cliente"
+    partition_col: *snapshot
+
+  cleaned_bel_users:
+    <<: *common_delta
+    path: "bel_catalogo_usuario"
+    description: "Información de usuarios bel"
+    partition_col: *catalog
+
+  cleaned_bel_app_master:
+    <<: *common_delta
+    path: "bel_app_master"
+    description: "Información diaria del maestro de bel app"
+    partition_col: *transactional
+
+  cleaned_bel_app_transfers:
+    <<: *common_delta
+    path: "bel_app_transferencia"
+    description: "Información de transferencias realizadas desde bel appp"
+    partition_col: *transactional
+
+  cleaned_bel_web_transfers:
+    <<: *common_delta
+    path: "bel_web_transferencia"
+    description: "Información de transferencias realizadas en bel web"
+    partition_col: *transactional
+
+  cleaned_investment:
+    <<: *common_delta
+    path: "inv_inversiones"
+    description: "Información mensual de productos de inversión"
+    partition_col: *snapshot
+
+  cleaned_investment_transaction:
+    <<: *common_delta
+    path: "inv_transaccion"
+    description: "Información diaria de las transacciones de productos de inversión"
+    partition_col: *transactional
+
+  cleaned_exchange_rate:
+    <<: *common_delta
+    path: "div_tasa_cambio"
+    description: "Información diaria de la tasa de cambio de GTQ a USD."
+    partition_col: *transactional
+
+  cleaned_current_account:
+    <<: *common_delta
+    path: "mon_cuenta"
+    description: "Información mensual de las cuentas monetarias de clientes."
+    partition_col: *snapshot
+
+  cleaned_current_account_transaction:
+    <<: *common_delta
+    path: "mon_transaccion"
+    description: "Información diaria de las transacciones realizadas en cuentas monetarias de clientes."
+    partition_col: *transactional
+
+  cleaned_debit_card:
+    <<: *common_delta
+    path: "td_cuenta"
+    description: "Información mensual de tarjetas de debito de clientes."
+    partition_col: *snapshot
+
+  cleaned_cards_transactions:
+    <<: *common_delta
+    path: "au_transaccion_tarjetas"
+    description: "Información diaria de las transacciones realizadas en tarjetas de debito y credito de clientes."
+    partition_col: *transactional
+
+  cleaned_saving_account:
+      <<: *common_delta
+      path: "aho_cuenta"
+      description: "Información mensual de cuentas de ahorro"
+      partition_col: *snapshot
+
+  cleaned_saving_account_transaction:
+      <<: *common_delta
+      path: "aho_transaccion"
+      description: "Información díaria de cuentas de ahorro"
+      partition_col: *transactional
+
+  cleaned_loan_account:
+    <<: *common_delta
+    path: "pre_prestamo"
+    description: "Información mensual de creditos."
+    partition_col: *snapshot
+
+  cleaned_branch_operations:
+    <<: *common_delta
+    path: "agen_transaccion"
+    description: "Información diaria de las operaciones en agencias."
+    partition_col: *transactional
+
+  cleaned_qflow_branches:
+    <<: *common_delta
+    path: "agen_catalogo_agencia_qflow"
+    description: "Catálogo de agencias."
+    partition_col: *catalog
+
+  cleaned_bbk_transaction:
+    <<: *common_delta
+    path: "bbk_transacciones"
+    description: "Información mensual de transacciones realizadas en los distintos modulos de BI Banking"
+    partition_col: *transactional
+
+  cleaned_cc_account:
+    <<: *common_delta
+    path: "tc_cuenta_principal"
+    description: "Información mensual de tarjetas de crédito principales de clientes."
+    partition_col: *snapshot
+
+  cleaned_additional_cc:
+    <<: *common_delta
+    path: "tc_cuenta_adicional"
+    description: "Información mensual de tarjetas de crédito adicionales de clientes."
+    partition_col: *snapshot
+
+  cleaned_cc_categories:
+    <<: *common_delta
+    path: "tc_catalogo_categoria"
+    description: "Catalogo de categorías de tarjeta de crédito."
+    partition_col: *catalog
+
+  cleaned_cc_updates:
+    <<: *common_delta
+    path: "tc_cambios_cuenta"
+    description: "Información diaria sobre cambios en tarjeta de crédito"
+    partition_col: *transactional
+
+  cleaned_cc_balance:
+    <<: *common_delta
+    path: "tc_maestro_saldos"
+    description: "Información mensual sobre balance en tarjeta de crédito"
+    partition_col: *snapshot
+
+  cleaned_cc_tenure_tsae83:
+    <<: *common_delta
+    path: "tc_mora_tsae83"
+    description: "Información mensual sobre mora en tsae83 para tarjeta de crédito"
+    partition_col: *snapshot
+
+  cleaned_cc_transaction_universe:
+    <<: *common_delta
+    path: "tc_universo_transacciones"
+    description: "Información diaria sobre el universo de transacciones en tarjeta de crédito"
+    partition_col: *transactional
+
+  cleaned_cc_extra_financing_master:
+    <<: *common_delta
+    path: "tc_maestro_extrafinanciamiento"
+    description: "Información mensual de financiamientos por tarjeta de crédito"
+    partition_col: *snapshot
+
+  cleaned_autoriza_transactions:
+    <<: *common_delta
+    path: "au_transaccion_tarjetas"
+    description: "Información diaria de las transacciones realizadas con una tarjeta desde un POS"
+    partition_col: *transactional
+
+  cleaned_mcc_catalog:
+    <<: *common_delta
+    path: "au_catalogo_mcc"
+    description: "Información catalogo para categorías MCC autoriza"
+    partition_col: *catalog
+
+  cleaned_joint_account:
+    <<: *common_delta
+    path: "man_mancomunada"
+    description: "Información mensual de cuentas mancomunadas."
+    partition_col: *snapshot
+
+  cleaned_eql_external_bureau:
+    <<: *common_delta
+    path: "eqpr_buro_externo"
+    description: "Información de buró externo en equifax consumos."
+    partition_col: *transactional
+
+  cleaned_eql_sib_debt_detail:
+    <<: *common_delta
+    path: "eqpr_detalle_deuda_sib"
+    description: "Información mensual de deudas reportadas por la SIB en equifax consumos."
+    partition_col: *transactional
+
+  cleaned_eql_sib_debt_history:
+    <<: *common_delta
+    path: "eqpr_historial_deuda_sib"
+    description: "Información mensual del historial de deuda en equifax consumos."
+    partition_col: *transactional
+
+  cleaned_eql_request:
+    <<: *common_delta
+    path: "eqpr_solicitud"
+    description: "Información de las solicitudes de préstamos en equifax consumos."
+    partition_col: ""
+
+  cleaned_eql_person_request:
+    <<: *common_delta
+    path: "eqpr_solicitud_persona"
+    description: "Información mensual de solicitud persona en equifax consumos."
+    partition_col: *catalog
+
+  cleaned_eql_person:
+    <<: *common_delta
+    path: "eqpr_persona"
+    description: "Información mensual del cliente en equifax consumos."
+    partition_col: *catalog
+
+  cleaned_loan_case:
+    <<: *common_delta
+    path: "pre_estado_crm"
+    description: "Información mensual del estado de los préstamos en crm."
+    partition_col: ""
+
+  cleaned_eql_tu_debt_detail:
+    <<: *common_delta
+    path: "eqpr_detalle_deuda_tu_inet"
+    description: "Información mensual de deudas reportadas por TU e INET en equifax consumos."
+    partition_col: *transactional
+
+  cleaned_sib_debt_detail:
+    <<: *common_delta
+    path: "sib_detalle_deuda"
+    description: "Información con detalle de deudas reportadas en la SIB."
+    partition_col: *transactional
+
+  cleaned_sib_debt_history:
+    <<: *common_delta
+    path: "sib_historial_deuda"
+    description: "Información del historial de deudas reportadas en la SIB."
+    partition_col: *transactional
+
+  cleaned_sib_general_data:
+    <<: *common_delta
+    path: "sib_informacion_general"
+    description: "Información general de productos reportados en la SIB."
+    partition_col: *transactional
+
+  cleaned_sib_risk_category:
+    <<: *common_delta
+    path: "sib_categoria_riesgo"
+    description: "Información de categorías de riesgo en la SIB."
+    partition_col: *catalog
+
+  cleaned_sib_entry_point:
+    <<: *common_delta
+    path: "sib_equivalencia_cif_bi"
+    description: "Información de mapeo id externo a id cliente BI."
+    partition_col: *catalog
+
+  cleaned_legal_financial:
+    <<: *common_delta
+    path: "cli_catalogo_informacion_financiera_juridico"
+    description: "Información financiera de los clientes jurídicos."
+    partition_col: *catalog
+
+  cleaned_cc_customer_extra_financing:
+    <<: *common_delta
+    path: "tc_extrafinanciamiento_por_cliente"
+    description: "Información mensual de financiamientos por cliente"
+    partition_col: *snapshot

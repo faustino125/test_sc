@@ -1,0 +1,29 @@
+eqpr_persona:
+  null_values:
+    enabled: true
+    columns: ["id_cliente_persona","id_cliente_bi","fecha_catalogo"]
+    null_thresholds:
+      id_cliente_persona: 0
+      id_cliente_bi: 0
+      fecha_catalogo: 0
+    severity: CRITICAL
+
+eqpr_solicitud_persona:
+  null_values:
+    enabled: true
+    columns: ["id_cliente_persona", "id_cliente_solicitud_persona","id_numero_solicitud","fecha_catalogo"]
+    null_thresholds:
+      id_cliente_persona: 0
+      id_cliente_solicitud_persona: 0
+      id_numero_solicitud: 0
+      fecha_catalogo: 0
+    severity: CRITICAL
+
+eqpr_solicitud:
+  null_values:
+    enabled: true
+    columns: ["id_numero_solicitud","id_crm"]
+    null_thresholds:
+      id_numero_solicitud: 0
+      id_crm: 0
+    severity: CRITICAL

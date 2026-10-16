@@ -1,0 +1,25 @@
+sib_categoria_riesgo:
+  duplicates:
+    enabled: true
+    primary_key: ["id_categoria_riesgo"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_categoria_riesgo", "fecha_catalogo"]
+    null_thresholds:
+      id_categoria_riesgo: 0
+      fecha_catalogo: 0
+    severity: CRITICAL
+
+sib_equivalencia_cif_bi:
+  duplicates:
+    enabled: true
+    primary_key: ["id_externo", "id_cliente"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_externo", "id_cliente"]
+    null_thresholds:
+      id_externo: 0
+      id_cliente: 0
+    severity: CRITICAL

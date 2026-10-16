@@ -1,0 +1,12 @@
+mc_td_tarjeta_debito:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente"]
+    severity: CRITICAL
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "_observ_end_dt"]
+    null_thresholds:
+      id_cliente: 0
+      _observ_end_dt: 0
+    severity: CRITICAL

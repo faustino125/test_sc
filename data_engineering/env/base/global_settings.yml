@@ -1,0 +1,9 @@
+raw_data_path : 'abfss://guatemala@datalakedatacr.dfs.core.windows.net/'
+
+data_cleaning_folder: data_engineering.data_cleaning.src.
+data_transformation_folder: data_engineering.data_transformation.src.
+data_integration_folder: data_engineering.data_integration.src.
+raw_data_folder: data_engineering.raw_data.src.
+
+webhook: 'https://corporacionbi.webhook.office.com/webhookb2/f1549e3e-90a4-419f-844e-3d89eb0b0a89@3a8d28ab-a537-4277-a9b0-f066a7aeb73f/IncomingWebhook/d2d12ae445294bbcb817680fb6c2970c/a66f56cd-af49-4177-bd61-497c0453a818/V2CIRgZFe4nXgtqnUgOJBjuoVNtdRuuAKiGlCY1aH65RQ1'
+company: bi

@@ -1,0 +1,129 @@
+fields:
+  _observ_end_dt: "Fecha observación final"
+  id_cliente: "Código de cliente"
+  mc_tc_monto_pago_transacciones_sum_val: Resume el monto total pagado en transacciones
+  mc_tc_saldo_capital_sum_val: Representa el saldo de capital total
+  mc_tc_fecha_min_apertura: Señala la fecha más temprana de apertura de cuenta
+  mc_tc_fecha_apertura_2018_flag: Indica si la tc más antigua del cliente se aperturó antes del 2018-06-01 (la fecha no se actualiza de forma dinámica, equipo de DS indica el filtro y su actualización) o no
+  mc_tc_limite_total_gtq_sum_val: Resume el límite total de crédito disponible para el cliente
+  mc_tc_flag_mora_tarjeta_credito_30d: Indica si el cliente ha estado en mora en pagos de tarjeta de crédito por 30 días
+  mc_tc_flag_mora_tarjeta_credito_60d: Muestra si el cliente ha estado en mora en pagos de tarjeta de crédito por 60 días
+  mc_tc_max_dias_mora_capital_e83: Indica el número máximo de días de mora en capital de tarjetas de crédito
+  mc_tc_max_dias_mora_intereses_e83: Indica el número máximo de días de mora en intereses de tarjetas de crédito
+  mc_tc_tarjetas_empresariales_flag: Indica si el cliente posee tarjetas empresariales
+  mc_tc_tarjetas_empresariales_cnt: Cuenta el número de tarjetas empresariales que posee el cliente
+  mc_tc_retiros_atm_bi_cnt: Cuenta el número de retiros en cajeros automáticos realizados por el cliente
+  mc_tc_restaurantes_transacciones_cnt: Cuenta el número de transacciones realizadas en restaurantes
+  mc_tc_comida_rapida_transacciones_cnt: Cuenta el número de transacciones en comida rápida
+  mc_tc_supermercados_y_alimentos_transacciones_cnt: Cuenta las transacciones en supermercados y tiendas de alimentos
+  mc_tc_monto_transacciones_sum_val: Resume el monto total gastado en todas las transacciones
+  mc_tc_transacciones_cnt: Cuenta el número total de transacciones realizadas por el cliente
+  mc_tc_monto_transacciones_retiros_atm_sum_val: Representa el monto total retirado en máquinas de transacciones electrónicas
+  mc_tc_transacciones_retiros_atm_cnt: Cuenta el número de retiros realizados en máquinas de transacciones electrónicas
+  mc_tc_monto_promedio_transaccion_val: Calcula el monto promedio de las transacciones
+  mc_tc_transacciones_gtq_cnt: Cuenta el número de transacciones realizadas en quetzales
+  mc_tc_transacciones_usd_cnt: Cuenta el número de transacciones realizadas en dólares estadounidenses
+  mc_tc_monto_compras_sin_cuotas_mensuales_val: Resume el monto gastado en compras sin cuotas mensuales
+  mc_tc_compras_sin_cuotas_mensuales_cnt: Cuenta el número de compras sin cuotas mensuales
+  mc_tc_fecha_mora_tarjeta_credito: Indica la fecha de la última mora en pagos de tarjeta de crédito
+  mc_tc_categoria_actual_visa_tipo: Describe la categoría actual de la tarjeta Visa del cliente
+  mc_tc_inactiva_cnt: Cuenta el número de tarjetas inactivas
+  mc_tc_bloqueada_cnt: Cuenta el número de tarjetas bloqueadas
+  mc_tc_cancelada_cnt: Cuenta el número de tarjetas canceladas
+  mc_tc_con_problema_cnt: Cuenta el número de tarjetas con problemas reportados
+  mc_tc_extraviada_cnt: Cuenta el número de tarjetas reportadas como extraviadas
+  mc_tc_fraude_cnt: Cuenta el número de tarjetas asociadas a casos de fraude
+  mc_tc_incobrable_cnt: Cuenta el número de tarjetas de crédito consideradas incobrables
+  mc_tc_juridica_cnt: Cuenta el número de tarjetas de crédito con problemas legales
+  mc_tc_moroso_cnt: Cuenta el número de tarjetas de crédito en mora.
+  mc_tc_robada_cnt: Cuenta el número de tarjetas reportadas como robadas
+  mc_tc_sobregirada_cnt: Cuenta el número de tarjetas de crédito que han excedido su límite de crédito
+  mc_tc_vigente_cnt: Cuenta el número de tarjetas activas
+  mc_tc_total_tarjetas_cnt: Cuenta el número total de tarjetas válidas/activas que posee el cliente
+  mc_tc_max_ciclo_mora: Máximo ciclo mora de todas las tc del cliente entre todas las líneas de crédito (GTQ y USD)
+  mc_tc_max_ciclo_mora_gtq: Máximo ciclo mora de todas las tc del cliente para la línea de crédito de quetzales
+  mc_tc_max_ciclo_mora_usd: Máximo ciclo mora de todas las tc del cliente para la línea de crédito de dólares
+  mc_tc_0_dias_mora_gtq_cnt: Cuenta el número de tarjetas de crédito con cero días de mora en quetzales
+  mc_tc_0_dias_mora_saldo_capital_gtq_val: Representa el saldo de capital de tarjetas de crédito con cero días de mora en quetzales
+  mc_tc_0_dias_mora_limite_gtq_val: Indica el límite de crédito de tarjetas de crédito con cero días de mora en quetzales
+  mc_tc_30_dias_mora_gtq_cnt: Cuenta el número de tarjetas de crédito con 30 días de mora en quetzales
+  mc_tc_30_dias_mora_saldo_capital_gtq_val: Representa el saldo de capital de tarjetas de crédito con 30 días de mora en quetzales
+  mc_tc_30_dias_mora_limite_gtq_val: Indica el límite de crédito de tarjetas de crédito con 30 días de mora en quetzales
+  mc_tc_60_dias_mora_gtq_cnt: Cuenta el número de tarjetas de crédito con 60 días de mora en quetzales
+  mc_tc_60_dias_mora_saldo_capital_gtq_val: Representa el saldo de capital de tarjetas de crédito con 60 días de mora en quetzales
+  mc_tc_60_dias_mora_limite_gtq_val: Indica el límite de crédito de tarjetas de crédito con 60 días de mora en quetzales
+  mc_tc_90_dias_mora_gtq_cnt: Cuenta el número de tarjetas de crédito con 90 días de mora en quetzales
+  mc_tc_90_dias_mora_saldo_capital_gtq_val: Representa el saldo de capital de tarjetas de crédito con 90 días de mora en quetzales
+  mc_tc_90_dias_mora_limite_gtq_val: Indica el límite de crédito de tarjetas de crédito con 90 días de mora en quetzales
+  mc_tc_120_dias_mora_gtq_cnt: Cuenta el número de tarjetas de crédito con 120 días de mora en quetzales
+  mc_tc_120_dias_mora_saldo_capital_gtq_val: Representa el saldo de capital de tarjetas de crédito con 120 días de mora en quetzales
+  mc_tc_120_dias_mora_limite_gtq_val: Indica el límite de crédito de tarjetas de crédito con 120 días de mora en quetzales
+  mc_tc_150_dias_mora_gtq_cnt: Cuenta el número de tarjetas de crédito con 150 días de mora en quetzales
+  mc_tc_150_dias_mora_saldo_capital_gtq_val: Representa el saldo de capital de tarjetas de crédito con 150 días de mora en quetzales
+  mc_tc_150_dias_mora_limite_gtq_val: Indica el límite de crédito de tarjetas de crédito con 150 días de mora en quetzales
+  mc_tc_180_dias_mora_gtq_cnt: Cuenta el número de tarjetas de crédito con 180 días de mora en quetzales
+  mc_tc_180_dias_mora_saldo_capital_gtq_val: Representa el saldo de capital de tarjetas de crédito con 180 días de mora en quetzales
+  mc_tc_180_dias_mora_limite_gtq_val: Indica el límite de crédito de tarjetas de crédito con 180 días de mora en quetzales
+  mc_tc_0_dias_mora_usd_cnt:  Cuenta el número de tarjetas de crédito con cero días de mora en dolares
+  mc_tc_0_dias_mora_saldo_capital_usd_val:  Representa el saldo de capital de tarjetas de crédito con cero días de mora en dolares
+  mc_tc_30_dias_mora_usd_cnt: Cuenta el número de tarjetas de crédito con 30 días de mora en dolares
+  mc_tc_30_dias_mora_saldo_capital_usd_val: Representa el saldo de capital de tarjetas de crédito con 30 días de mora en dolares
+  mc_tc_60_dias_mora_usd_cnt:  Cuenta el número de tarjetas de crédito con 30 días de mora en dolares
+  mc_tc_60_dias_mora_saldo_capital_usd_val: Representa el saldo de capital de tarjetas de crédito con 60 días de mora en dolares
+  mc_tc_90_dias_mora_usd_cnt: Cuenta el número de tarjetas de crédito con 90 días de mora en dolares
+  mc_tc_90_dias_mora_saldo_capital_usd_val: Representa el saldo de capital de tarjetas de crédito con 90 días de mora en dolares
+  mc_tc_90_dias_mora_limite_usd_val: Indica el límite de crédito de tarjetas de crédito con 90 días de mora en dolares
+  mc_tc_120_dias_mora_usd_cnt: Cuenta el número de tarjetas de crédito con 120 días de mora en dolares
+  mc_tc_120_dias_mora_saldo_capital_usd_val: Representa el saldo de capital de tarjetas de crédito con 120 días de mora en dolares
+  mc_tc_120_dias_mora_limite_usd_val: Indica el límite de crédito de tarjetas de crédito con 120 días de mora en dolares
+  mc_tc_150_dias_mora_usd_cnt: Cuenta el número de tarjetas de crédito con 150 días de mora en dolares
+  mc_tc_150_dias_mora_saldo_capital_usd_val: Representa el saldo de capital de tarjetas de crédito con 150 días de mora en dolares
+  mc_tc_150_dias_mora_limite_usd_val: Indica el límite de crédito de tarjetas de crédito con 150 días de mora en dolares
+  mc_tc_180_dias_mora_usd_cnt: Cuenta el número de tarjetas de crédito con 180 días de mora en dolares
+  mc_tc_180_dias_mora_saldo_capital_usd_val: Representa el saldo de capital de tarjetas de crédito con 180 días de mora en dolares
+  mc_tc_180_dias_mora_limite_usd_val: Indica el límite de crédito de tarjetas de crédito con 180 días de mora en dolares
+  mc_tc_categoria_visa_sin_ac_tipo: Categoría maxima de tarjetas de crédito que no poseen tarjetas adicionales
+  mc_tc_tarjetas_adicionales_validas_cnt: Cantidad de tarjetas adicionales válidas (vigente, bloqueada, juridica, sobregirada)
+  mc_tc_ratio_utilizacion: Ratio de utilización de tarjetas de crédito (Monto pago transacciones / límite total)
+  mc_tc_mora_30_mayor_saldo_mora_quetzalizado_val: Acorde a reglas de negocio, si una de las 2 líneas de crédito (USD o GTQ) tiene un saldo en mora, se considera como que ambas líneas están en mora. Se coloca la sumatoria de ambos saldos en mora independientemente de qué línea esté en mora (USD o GTQ) de todas las tc del cliente con 30 días de mora
+  mc_tc_mora_30_saldo_mora_quetzalizado_val: Saldo en mora quetzalizado entre tarjetas con 30 días de mora
+  mc_tc_mora_60_mayor_saldo_mora_quetzalizado_val: Acorde a reglas de negocio, si una de las 2 líneas de crédito (USD o GTQ) tiene un saldo en mora, se considera como que ambas líneas están en mora. Se coloca la sumatoria de ambos saldos en mora independientemente de qué línea esté en mora (USD o GTQ) de todas las tc del cliente con 60 días de mora
+  mc_tc_mora_60_saldo_mora_quetzalizado_val: Saldo en mora quetzalizado entre tarjetas con 60 días de mora
+  mc_tc_mora_90_mayor_saldo_mora_quetzalizado_val: Acorde a reglas de negocio, si una de las 2 líneas de crédito (USD o GTQ) tiene un saldo en mora, se considera como que ambas líneas están en mora. Se coloca la sumatoria de ambos saldos en mora independientemente de qué línea esté en mora (USD o GTQ) de todas las tc del cliente con 90 días de mora
+  mc_tc_mora_90_saldo_mora_quetzalizado_val: Saldo en mora quetzalizado entre tarjetas con 90 días de mora
+  mc_tc_mora_120_mayor_saldo_mora_quetzalizado_val: Acorde a reglas de negocio, si una de las 2 líneas de crédito (USD o GTQ) tiene un saldo en mora, se considera como que ambas líneas están en mora. Se coloca la sumatoria de ambos saldos en mora independientemente de qué línea esté en mora (USD o GTQ) de todas las tc del cliente con 120 días de mora
+  mc_tc_mora_120_saldo_mora_quetzalizado_val: Saldo en mora quetzalizado entre tarjetas con 120 días de mora
+  mc_tc_mora_150_mayor_saldo_mora_quetzalizado_val: Acorde a reglas de negocio, si una de las 2 líneas de crédito (USD o GTQ) tiene un saldo en mora, se considera como que ambas líneas están en mora. Se coloca la sumatoria de ambos saldos en mora independientemente de qué línea esté en mora (USD o GTQ) de todas las tc del cliente con 150 días de mora
+  mc_tc_mora_150_saldo_mora_quetzalizado_val: Saldo en mora quetzalizado entre tarjetas con 150 días de mora
+  mc_tc_mora_180_mayor_saldo_mora_quetzalizado_val: Acorde a reglas de negocio, si una de las 2 líneas de crédito (USD o GTQ) tiene un saldo en mora, se considera como que ambas líneas están en mora. Se coloca la sumatoria de ambos saldos en mora independientemente de qué línea esté en mora (USD o GTQ) de todas las tc del cliente con 180 días de mora
+  mc_tc_mora_180_saldo_mora_quetzalizado_val: Saldo en mora quetzalizado entre tarjetas con 180 días de mora
+  mc_tc_mora_210_mayor_saldo_mora_quetzalizado_val: Acorde a reglas de negocio, si una de las 2 líneas de crédito (USD o GTQ) tiene un saldo en mora, se considera como que ambas líneas están en mora. Se coloca la sumatoria de ambos saldos en mora independientemente de qué línea esté en mora (USD o GTQ) de todas las tc del cliente con 210 días de mora
+  mc_tc_mora_210_saldo_mora_quetzalizado_val: Saldo en mora quetzalizado entre tarjetas con 210 días de mora
+  mc_tc_mora_superior_210_mayor_saldo_mora_quetzalizado_val: Acorde a reglas de negocio, si una de las 2 líneas de crédito (USD o GTQ) tiene un saldo en mora, se considera como que ambas líneas están en mora. Se coloca la sumatoria de ambos saldos en mora independientemente de qué línea esté en mora (USD o GTQ) de todas las tc del cliente con más de 210 días de mora
+  mc_tc_mora_superior_210_saldo_mora_quetzalizado_val: Saldo en mora quetzalizado entre tarjetas con más de 210 días de mora
+  mc_tc_financiamientos_activos_cnt: "Suma de financimientos activos por cliente (convenios de pago, extrafinanciamientos, neocuotas, traslado a cuotas y unificación de saldos)"
+  mc_tc_total_monto_otorgado_financiamiento_activo_quetzalizado_val:  "Monto total otorgado en financiamientos activos (convenios de pago, extrafinanciamientos, neocuotas, traslado a cuotas y unificación de saldos)"
+  mc_tc_total_saldo_pendiente_financiamiento_activo_quetzalizado_val: "Total del saldo pendiente en financiamientos activos (convenios de pago, extrafinanciamientos, neocuotas, traslado a cuotas y unificación de saldos)"
+  mc_tc_total_cuota_mensual_financiamiento_activo_quetzalizado_val: "Total cuota mensual de financiamientos activos (convenios de pago, extrafinanciamientos, neocuotas, traslado a cuotas y unificación de saldos)"
+  mc_tc_convenio_de_pago_monto_vigente_otorgado_quetzalizado_val:  "Monto total en quetzales otorgado para convenios vigentes"
+  mc_tc_convenio_de_pago_monto_otorgado_mes_actual_quetzalizado_val:  "Monto otorgado para convenios de pago en el mismo mes de la fecha de información y representado en una única moneda"
+  mc_tc_convenio_de_pago_saldo_pendiente_quetzalizado_val:  "saldo pendiente de convenios de pago vigentes representados en una única moneda"
+  mc_tc_convenio_de_pago_cuota_mensual_vigente_quetzalizado_val: "Cuota mensual a pagar por convenios de pago vigentes y reflejados en una únuca moneda"
+  mc_tc_extrafinanciamiento_monto_vigente_otorgado_quetzalizado_val: "Monto total otorgado para extrafinanciamientos vigentes y reflejados en una única moneda"
+  mc_tc_extrafinanciamiento_monto_otorgado_mes_actual_quetzalizado_val: "Monto otorgado para extrafinanciamientos en el mismo mes de la fecha de información y representado en una única moneda"
+  mc_tc_extrafinanciamiento_saldo_pendiente_quetzalizado_val: "saldo pendiente de extrafinanciamientos vigentes representados en una única moneda"
+  mc_tc_extrafinanciamiento_cuota_mensual_vigente_quetzalizado_val: "Cuota mensual a pagar por extrafinanciamientos vigentes y reflejados en una única moneda"
+  mc_tc_neocuotas_monto_vigente_otorgado_quetzalizado_val: "Monto total otorgado para neocuotas vigentes y reflejados en una única moneda"
+  mc_tc_neocuotas_monto_otorgado_mes_actual_quetzalizado_val: "Monto otorgado para neocuotas en el mismo mes de la fecha de información y representado en una única moneda"
+  mc_tc_neocuotas_saldo_pendiente_quetzalizado_val:  "saldo pendiente de neocuotas vigentes representados en una única moneda"
+  mc_tc_neocuotas_cuota_mensual_vigente_quetzalizado_val: "Cuota mensual a pagar por neocuotas vigentes y reflejados en una única moneda"
+  mc_tc_traslado_a_cuotas_monto_vigente_otorgado_quetzalizado_val: traslado_a_cuotas_monto_vigente_otorgado_quetzalizado_val
+  mc_tc_traslado_a_cuotas_monto_otorgado_mes_actual_quetzalizado_val: "Monto otorgado para traslado a cuotas en el mismo mes de la fecha de información y representado en una única moneda"
+  mc_tc_traslado_a_cuotas_saldo_pendiente_quetzalizado_val: "saldo pendiente de traslado a cuotas vigentes representados en una única moneda"
+  mc_tc_traslado_a_cuotas_cuota_mensual_vigente_quetzalizado_val:  "Cuota mensual a pagar por traslado a cuotas vigentes y reflejados en una única moneda"
+  mc_tc_unificacion_saldos_monto_vigente_otorgado_quetzalizado_val: "Monto total otorgado para unificacion de saldos vigentes y reflejados en una única moneda"
+  mc_tc_unificacion_saldos_monto_otorgado_mes_actual_quetzalizado_val: "Monto otorgado para unificacion de saldos en el mismo mes de la fecha de información y representado en una única moneda"
+  mc_tc_unificacion_saldos_saldo_pendiente_quetzalizado_val:  "saldo pendiente de unificacion de saldos vigentes representados en una única moneda"
+  mc_tc_unificacion_saldos_cuota_mensual_vigente_quetzalizado_val: "Cuota mensual a pagar por unificacion de saldos vigentes y reflejados en una única moneda"
+  _particion: Separación de año y mes correspondiente a los datos
+  _observ_start_dt: Fecha correspondiente al primer día del mes

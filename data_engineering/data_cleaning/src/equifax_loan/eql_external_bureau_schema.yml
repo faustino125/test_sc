@@ -1,0 +1,9 @@
+fields:
+  fecha_transaccion: "Fecha asociada a la información del registro"
+  id_buro_externo: "Código del buró externo de consulta"
+  id_cliente_persona: "Código de cliente persona de equifax"
+  id_cliente_solper: "Código de cliente de solicitud persona de equifax"
+  id_numero_solicitud: "Número de solicitud"
+  buro_referencia: "Descripción del buró de referencia para la consulta"
+  _observ_start_dt: "Fecha correspondiente al primer día del mes"
+  _observ_end_dt: "Fecha correspondiente al último día del mes"

@@ -1,0 +1,1 @@
+company_path: 'abfss://$env@datalakedesabi.dfs.core.windows.net/'

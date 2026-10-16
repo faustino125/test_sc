@@ -1,0 +1,116 @@
+partition_col: &partition_col _observ_end_dt
+
+sanity_check_results:
+  Output: "sanity_check_results"
+  description: "Resultados de la comprobación de validación de datos"
+  input_partition_col: "_observ_end_dt"
+
+mc_bel:
+  Input:
+    - transformed_bel
+  Output: canal_digital
+  input_partition_col: *partition_col
+  description: "Información mensual de características de transacciones realizadas por Bi en línea Web y App, agrupadas por cliente."
+
+mc_bi_banking:
+  Input:
+    - transformed_bibanking
+  Output: transacciones
+  input_partition_col: *partition_col
+  description: "Información mensual de características de transacciones realizadas en Bi Banking, agrupadas por cliente."
+
+mc_credit_card:
+  Input:
+    - transformed_credit_card
+    - transformed_autoriza
+    - transformed_additional_credit_card
+  Output: tarjeta_credito
+  input_partition_col: *partition_col
+  description: "Información mensual de características correspondientes al flow de Tarjeta de crédito, agrupadas por cliente."
+
+mc_current_account:
+  Input:
+    - transformed_current
+  Output: monetaria
+  input_partition_col: *partition_col
+  description: "Información mensual de características de transacciones de cuentas monetarias, agrupadas por cliente."
+
+mc_debit_card:
+  Input:
+    - transformed_debit_card
+    - transformed_autoriza
+  Output: tarjeta_debito
+  input_partition_col: *partition_col
+  description: "Información mensual de características de transacciones de tarjetas de débito, agrupadas por cliente."
+
+mc_investment:
+  Input:
+    - transformed_investment
+  Output: inversiones
+  input_partition_col: *partition_col
+  description: "Información mensual de características del módulo de inversiones, agrupadas por cliente."
+
+mc_loan:
+  Input:
+    - transformed_loan
+  Output: prestamo
+  input_partition_col: *partition_col
+  description: "Información mensual de características correspondiente a la información de préstamos, agrupadas por cliente."
+
+mc_saving_account:
+  Input:
+    - transformed_saving
+  Output: ahorro
+  input_partition_col: *partition_col
+  description: "Información mensual de características de cuentas de ahorro, agrupadas por cliente."
+
+mc_eql_sib_debt_detail:
+  Input:
+    - transformed_eql_sib_debt_detail
+  Output: deuda_sib
+  input_partition_col: *partition_col
+  description: "Información mensual de características de detalle de deuda de la SIB para préstamos, agrupada por cliente."
+
+mc_eql_income:
+  Input:
+    - transformed_eql_income
+  Output: ingresos
+  input_partition_col: ""
+  description: "Información de catálogo de caracteristicas de ingresos de clientes basadas en información de equifax prestamos"
+
+mc_eql_tu_debt_detail:
+  Input:
+    - transformed_eql_tu_debt_detail
+  Output: deuda_tu
+  input_partition_col: *partition_col
+  description: "Información mensual de características de detalle de deuda de TU para préstamos, agrupada por cliente."
+
+mc_cliente:
+  Input:
+    - transformed_current
+    - transformed_saving
+    - transformed_customer
+    - transformed_credit_card
+    - transformed_loan
+    - transformed_investment
+  Output: cliente
+  input_partition_col: *partition_col
+  description: "Información mensual de características correspondientes al flow de Cliente"
+
+check_date:
+  Output: control_rango_fechas
+  description: "Verifica que todos los flows de data integration tengan información del mes anterior"
+
+sanity_check:
+  Input:
+    - all_tables
+  Output: historial_sanity_check
+  input_partition_col: "_observ_end_dt"
+  description: "Logs de calidad de datos generados por el Sanity Check"
+dashboard_volume:
+  Output: volume_data_dashboard
+  description: "Información de resumen de comportamiento y estadistica descriptiva para dashboard con granularidad por tabla"
+
+dashboard_profile:
+  Output: profile_data_dashboard
+  description: "Información de resumen de comportamiento y estadistica descriptiva para dashboard con granularidad por columna"

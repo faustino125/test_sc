@@ -1,0 +1,11 @@
+fields:
+  fecha_catalogo: "Fecha asociada a la información del registro"
+  id_cliente: "Código de cliente BI"
+  ingresos_anuales_moodys_gtq: "Ingresos anuales en quetzales del cliente, según datos Moodys"
+  ingresos_anuales_sib_gtq: "Ingresos anuales en quetzales del cliente, según reportes SIB"
+  ingresos_anuales_e83_gtq: "Ingresos anuales en quetzales del cliente, según reportes E83"
+  ingresos_anuales_ire_gtq: "Ingresos anuales en quetzales del cliente, según tablas IRE"
+  ingresos_anuales_monetarios_gtq: "Ingresos anuales en quetzales del cliente, según datos monetarios"
+  anio_informacion: "Año al que corresponde la información del registro"
+  _observ_start_dt: "Fecha correspondiente al primer día del mes"
+  _observ_end_dt: "Fecha correspondiente al último día del mes"

@@ -1,0 +1,89 @@
+common_delta: &common_delta
+  file_extension: delta
+
+snapshot: &snapshot _observ_end_dt
+
+Input:
+  transformed_customer:
+    <<: *common_delta
+    path: "cli_cliente"
+    description: "Información de clientes resultantes de la capa de transformación."
+    partition_col: *snapshot
+
+  transformed_investment:
+    <<: *common_delta
+    path: "inv_inversiones"
+    description: "Información de inversiones resultantes de la capa de transformación."
+    partition_col: *snapshot
+
+  transformed_loan:
+    <<: *common_delta
+    path: "pre_prestamo"
+    description: "Información de prestamos resultantes de la capa de transformación."
+    partition_col: *snapshot
+
+  transformed_saving:
+    <<: *common_delta
+    path: "aho_cuenta"
+    description: "Información de cuentas de ahorro resultantes de la capa de transformación."
+    partition_col: *snapshot
+
+  transformed_current:
+    <<: *common_delta
+    path: "mon_monetaria"
+    description: "Información de cuentas monetarias resultantes de la capa de transformación."
+    partition_col: *snapshot
+
+  transformed_bel:
+    <<: *common_delta
+    path: "bel_canal_digital"
+    description: "Información de transacciones en Bi en Linea web y App resultantes de la capa de transformación."
+    partition_col: *snapshot
+
+  transformed_debit_card:
+    <<: *common_delta
+    path: "td_tarjeta_debito"
+    description: "Información de tarjeta de débito resultantes de la capa de transformación."
+    partition_col: *snapshot
+
+  transformed_credit_card:
+    <<: *common_delta
+    path: "tc_tarjeta_de_credito"
+    description: "Información de tarjeta de crédito resultantes de la capa de transformación."
+    partition_col: *snapshot
+
+  transformed_additional_credit_card:
+    <<: *common_delta
+    path: "tc_tarjeta_de_credito_adicional"
+    description: "Información de tarjeta de crédito adicional resultantes de la capa de transformación."
+    partition_col: *snapshot
+
+  transformed_autoriza:
+    <<: *common_delta
+    path: "au_transacciones_tarjetas"
+    description: "Información de transacciones a través de POS resultantes de la capa de transformación."
+    partition_col: *snapshot
+
+  transformed_bibanking:
+    <<: *common_delta
+    path: "bbk_transacciones"
+    description: "Información resultante de la capa de transformación de datos correspondiente a Bi banking."
+    partition_col: *snapshot
+
+  transformed_eql_sib_debt_detail:
+    <<: *common_delta
+    path: "eqpr_deuda_sib"
+    description: "Información resultante de la capa de transformación de datos correspondiente al detalle de deuda sib para préstamos."
+    partition_col: *snapshot
+
+  transformed_eql_tu_debt_detail:
+    <<: *common_delta
+    path: "eqpr_deuda_tu"
+    description: "Información resultante de la capa de transformación de datos correspondiente al detalle de deuda tu para préstamos."
+    partition_col: *snapshot
+
+  transformed_eql_income:
+    <<: *common_delta
+    path: "eqpr_ingresos"
+    description: "Información resultante de la capa de transformación de datos correspondiente a los ingresos provenientes de equifax prestamos"
+    partition_col: ""

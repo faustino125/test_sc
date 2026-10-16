@@ -1,0 +1,15 @@
+#---------------- vw_COE_Cuentas_Mancomunadas --------------------------------
+vw_COE_Cuentas_Mancomunadas:
+  duplicates:
+    enabled: true
+    primary_key: ["DW_CODIGO_CLIENTE","DW_CUENTA_CORPORATIVA","DW_APLICACION_CODIGO"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["DW_CODIGO_CLIENTE", "DW_CUENTA_CORPORATIVA", "DW_APLICACION_CODIGO", "DW_FECHA_INFORMACION"]
+    null_thresholds:
+      DW_CODIGO_CLIENTE: 0           # 0% nulls allowed
+      DW_CUENTA_CORPORATIVA: 0       # 0% nulls allowed
+      DW_APLICACION_CODIGO: 0        # 0% nulls allowed
+      DW_FECHA_INFORMACION: 0        # 0% nulls allowed
+    severity: HIGH

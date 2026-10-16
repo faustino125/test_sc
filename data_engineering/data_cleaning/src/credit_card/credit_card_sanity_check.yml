@@ -1,0 +1,95 @@
+tc_cuenta_principal:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente", "cuenta_corporativa"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "cuenta_corporativa", "fecha_informacion"]
+    null_thresholds:
+      id_cliente: 0
+      cuenta_corporativa: 0
+      fecha_informacion: 0
+    severity: CRITICAL
+  dimensional:
+    enabled: true
+    dimensions:
+      emisor: ["visa", "mc", "privada"]
+    severity: CRITICAL
+
+tc_cuenta_adicional:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente", "cuenta_corporativa_principal", "cuenta_corporativa"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente","cuenta_corporativa_principal","cuenta_corporativa", "fecha_informacion"]
+    null_thresholds:
+      id_cliente: 0
+      cuenta_corporativa_principal: 0
+      cuenta_corporativa: 0
+      fecha_informacion: 0
+    severity: CRITICAL
+
+tc_mora_tsae83:
+  null_values:
+    enabled: true
+    columns: ["cuenta_corporativa", "fecha_informacion"]
+    null_thresholds:
+      cuenta_corporativa: 0
+      fecha_informacion: 0
+    severity: CRITICAL
+
+tc_maestro_saldos:
+  duplicates:
+    enabled: true
+    primary_key: ["cuenta_corporativa"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["cuenta_corporativa", "fecha_informacion"]
+    null_thresholds:
+      cuenta_corporativa: 0
+      fecha_informacion: 0
+    severity: CRITICAL
+
+tc_maestro_extrafinanciamiento:
+  null_values:
+    enabled: true
+    columns: ["id_cliente","cuenta_corporativa", "fecha_informacion"]
+    null_thresholds:
+      id_cliente: 0
+      cuenta_corporativa: 0
+      fecha_informacion: 0
+    severity: CRITICAL
+
+tc_extrafinanciamiento_por_cliente:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente", "fecha_informacion"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "fecha_informacion"]
+    null_thresholds:
+      id_cliente: 0
+      fecha_informacion: 0
+    severity: CRITICAL
+
+tc_catalogo_categoria:
+  duplicates:
+    enabled: true
+    primary_key: ["id_categoria_tc"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_categoria_tc", "fecha_catalogo"]
+    null_thresholds:
+      id_categoria_tc: 0
+      fecha_catalogo: 0
+    severity: CRITICAL
+  dimensions:
+    enabled: true
+    segmento: ["empresarial","individual"]
+    severity: CRITICAL

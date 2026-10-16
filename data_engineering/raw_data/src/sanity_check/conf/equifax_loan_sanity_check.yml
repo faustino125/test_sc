@@ -1,0 +1,32 @@
+#---------------- vw_coe_eqf_consumo_persona --------------------------------
+vw_coe_eqf_consumo_persona:
+  null_values:
+    enabled: true
+    columns: ["codigo_cliente_persona","codigo_cliente_bi", "dw_fecha_informacion"]
+    null_thresholds:
+      codigo_cliente_persona: 0              # 0% nulls allowed
+      codigo_cliente_bi: 0                   # 0% nulls allowed
+      dw_fecha_informacion: 0        # 0% nulls allowed
+    severity: HIGH
+
+#---------------- vw_coe_eqf_consumo_solicitud_persona --------------------------------
+vw_coe_eqf_consumo_solicitud_persona:
+  null_values:
+    enabled: true
+    columns: ["codigo_cliente_persona", "codigo_cliente_solper", "numero_solicitud", "dw_fecha_informacion"]
+    null_thresholds:
+      codigo_cliente_persona: 0 # 0% nulls allowed
+      codigo_cliente_solper: 0  # 0% nulls allowed
+      numero_solicitud: 0       # 0% nulls allowed
+      dw_fecha_informacion: 0   # 0% nulls allowed
+    severity: HIGH
+
+#---------------- vw_coe_eqf_consumo_solicitud --------------------------------
+vw_coe_eqf_consumo_solicitud:
+  null_values:
+    enabled: true
+    columns: ["numero_solicitud","numero_caso_crm", ]
+    null_thresholds:
+      numero_solicitud: 0                # 0% nulls allowed
+      numero_caso_crm: 0                 # 0% nulls allowed
+    severity: MEDIUM

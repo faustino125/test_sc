@@ -1,0 +1,14 @@
+#---------------- vw_coe_ahorros --------------------------------
+vw_coe_ahorros:
+  duplicates:
+    enabled: true
+    primary_key: ["Cuenta_Corporativa"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["Codigo_Cliente", "Cuenta_Corporativa", "DW_FECHA_INFORMACION"]
+    null_thresholds:
+      Codigo_Cliente: 0           # 0% nulls allowed
+      Cuenta_Corporativa: 0       # 0% nulls allowed
+      DW_FECHA_INFORMACION: 0        # 0% nulls allowed
+    severity: HIGH

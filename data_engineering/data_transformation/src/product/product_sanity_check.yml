@@ -1,0 +1,14 @@
+prd_cliente_producto:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente", "cuenta_corporativa","prd_id_aplicacion"]
+  severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "cuenta_corporativa", "prd_id_aplicacion", "_observ_end_dt"]
+    null_thresholds:
+      id_cliente: 0
+      cuenta_corporativa: 0
+      prd_id_aplicacion: 0
+      _observ_end_dt: 0
+    severity: CRITICAL

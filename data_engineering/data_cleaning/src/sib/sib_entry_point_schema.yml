@@ -1,0 +1,6 @@
+fields:
+  id_persona: "ID de persona en buró SIB"
+  id_cliente: "Codigo de cliente BI"
+  fecha_catalogo: "Fecha asociada a la información del registro."
+  _observ_start_dt: "Fecha correspondiente al primer día del mes"
+  _observ_end_dt: "Fecha correspondiente al último día del mes"

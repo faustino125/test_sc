@@ -1,0 +1,108 @@
+#---------------- vw_coe_cuenta_tc --------------------------------
+vw_coe_cuenta_tc:
+  duplicates:
+    enabled: true
+    primary_key: ["Cuenta_Corporativa"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["Codigo_Cliente", "Cuenta_Corporativa", "DW_FECHA_INFORMACION"]
+    null_thresholds:
+      Codigo_Cliente: 0           # 0% nulls allowed
+      Cuenta_Corporativa: 0       # 0% nulls allowed
+      DW_FECHA_INFORMACION: 0        # 0% nulls allowed
+    severity: HIGH
+
+#---------------- vw_Mksy_tc_adicionales --------------------------------
+vw_Mksy_tc_adicionales:
+  duplicates:
+    enabled: true
+    primary_key: ["CODIGO_CLIENTE","Cuenta_Corporativa_Principal", "Cuenta_Corporativa_Adicional"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["CODIGO_CLIENTE", "Cuenta_Corporativa_Principal","Cuenta_Corporativa_Adicional", "dw_fecha_informacion"]
+    null_thresholds:
+      CODIGO_CLIENTE: 0              # 0% nulls allowed
+      Cuenta_Corporativa_Principal: 0 # 0% nulls allowed
+      Cuenta_Corporativa_Adicional: 0 # 0% nulls allowed
+      dw_fecha_informacion: 0        # 0% nulls allowed
+    severity: HIGH
+
+#---------------- vw_coe_tc_tsae83 --------------------------------
+vw_coe_tc_tsae83:
+  null_values:
+    enabled: true
+    columns: ["DW_CUENTA_CORPORATIVA", "DW_FECHA_INFORMACION"]
+    null_thresholds:
+      DW_CUENTA_CORPORATIVA: 0       # 0% nulls allowed
+      DW_FECHA_INFORMACION: 0        # 0% nulls allowed
+    severity: HIGH
+
+#---------------- vw_coe_tc_maestro_saldos_nl --------------------------------
+vw_coe_tc_maestro_saldos_nl:
+  duplicates:
+    enabled: true
+    primary_key: ["DW_CUENTA_CORPORATIVA"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["DW_CUENTA_CORPORATIVA", "DW_FECHA_INFORMACION"]
+    null_thresholds:
+      DW_CUENTA_CORPORATIVA: 0       # 0% nulls allowed
+      DW_FECHA_INFORMACION: 0        # 0% nulls allowed
+    severity: HIGH
+
+#---------------- vw_coe_tc_extrafinanciamiento --------------------------------
+vw_coe_tc_extrafinanciamiento:
+  null_values:
+    enabled: true
+    columns: ["codigo_cliente", "cuenta_corporativa","dw_fecha_informacion"]
+    null_thresholds:
+      codigo_cliente: 0              # 0% nulls allowed
+      cuenta_corporativa: 0          # 0% nulls allowed
+      dw_fecha_informacion: 0        # 0% nulls allowed
+    severity: HIGH
+
+#---------------- vw_coe_tc_cupos_cuenta --------------------------------
+vw_coe_tc_cupos_cuenta:
+  duplicates:
+    enabled: true
+    primary_key: ["Cuenta_corporativa"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["codigo_cliente", "cuenta_corporativa", "dw_fecha_informacion"]
+    null_thresholds:
+      codigo_cliente: 0              # 0% nulls allowed
+      cuenta_corporativa: 0          # 0% nulls allowed
+      dw_fecha_informacion: 0        # 0% nulls allowed
+    severity: HIGH
+
+#---------------- vw_coe_tc_res_estado_cuenta --------------------------------
+vw_coe_tc_res_estado_cuenta:
+  duplicates:
+    enabled: true
+    primary_key: ["codigo_cliente", "cuenta_corporativa"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["codigo_cliente", "cuenta_corporativa", "dw_fecha_informacion"]
+    null_thresholds:
+      codigo_cliente: 0              # 0% nulls allowed
+      cuenta_corporativa: 0          # 0% nulls allowed
+      dw_fecha_informacion: 0        # 0% nulls allowed
+    severity: HIGH
+
+#---------------- vw_coe_tc_catalogo_producto --------------------------------
+vw_coe_tc_catalogo_producto:
+  duplicates:
+    enabled: true
+    primary_key: ["categoria"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["categoria","categoria"]
+    null_thresholds:
+      categoria: 0             # 0% nulls allowed
+    severity: MEDIUM

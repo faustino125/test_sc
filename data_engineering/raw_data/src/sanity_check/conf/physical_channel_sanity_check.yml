@@ -1,0 +1,13 @@
+#---------------- vw_coe_catalogo_agencia_qflow --------------------------------
+vw_coe_catalogo_agencia_qflow:
+  duplicates:
+    enabled: true
+    primary_key: ["codigo_agencia"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["codigo_agencia", "dw_fecha_informacion"]
+    null_thresholds:
+      codigo_agencia: 0                # 0% nulls allowed
+      dw_fecha_informacion: 0        # 0% nulls allowed
+    severity: MEDIUM

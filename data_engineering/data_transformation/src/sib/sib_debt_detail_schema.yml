@@ -1,0 +1,57 @@
+fields:
+  _observ_end_dt: Fecha correspondiente al último día del mes
+  id_cliente: Código de cliente BI
+  sib_id_persona: ID de persona en buró SIB
+  sib_fecha_saldos: ID buro externo
+  sib_fecha_deuda: Fecha de la deuda
+  sib_deuda_directa_id_peor_categoria_deuda: "Código de la peor categoría del riesgo de deudas directas del cliente"
+  sib_deuda_directa_descripcion_peor_categoria_deuda: "Descripción de la peor categoría del riesgo de deudas directas del cliente"
+  sib_deuda_indirecta_id_peor_categoria_deuda: "Código de la peor categoría del riesgo de deudas indirectas del cliente"
+  sib_deuda_indirecta_descripcion_peor_categoria_deuda: "Descripción de la peor categoría del riesgo de deudas indirectas del cliente"
+  sib_deuda_directa_creditos_cta_dep_monetarios_monto_otorgado_gtq_val: Monto total para deudas directas en creditos cta dep monetarios
+  sib_deuda_directa_creditos_cta_dep_monetarios_saldo_actual_deuda_gtq_val: Saldo actual para deudas directas en creditos cta dep monetarios
+  sib_deuda_directa_creditos_cta_dep_monetarios_cnt: Cantidad de deudas directas en creditos cta dep monetarios
+  sib_deuda_directa_otras_deudas_monto_otorgado_gtq_val: Monto total para deudas directas en otro tipo de deudas
+  sib_deuda_directa_otras_deudas_saldo_actual_deuda_gtq_val: Saldo actual para deudas directas en otro tipo de deudas
+  sib_deuda_directa_otras_deudas_cnt: Cantidad de deudas directas en otro tipo de deudas
+  sib_deuda_directa_prestamos_monto_otorgado_gtq_val: Monto total para deudas directas en prestamos
+  sib_deuda_directa_prestamos_saldo_actual_deuda_gtq_val: Saldo actual para deudas directas en prestamos
+  sib_deuda_directa_prestamos_cnt: Cantidad de deudas directas en prestamos
+  sib_deuda_directa_tc_saldo_actual_deuda_gtq_val: Saldo actual para deudas directas en tarjetas de credito
+  sib_deuda_directa_tc_cnt: Cantidad de deudas directas en tarjetas de credito
+  sib_deuda_directa_tc_convenios_de_pago_monto_otorgado_gtq_val: Monto total para deudas directas en convenios de pago de tarjetas de credito
+  sib_deuda_directa_tc_convenios_de_pago_saldo_actual_deuda_gtq_val: Saldo actual para deudas directas en convenios de pago de tarjetas de credito
+  sib_deuda_directa_tc_convenios_de_pago_cnt: Cantidad de deudas directas en convenios de pago de tarjetas de credito
+  sib_deuda_directa_tc_extrafinanciamientos_monto_otorgado_gtq_val: Monto total para deudas directas en extrafinanciamientos de tarjetas de credito
+  sib_deuda_directa_tc_extrafinanciamientos_saldo_actual_deuda_gtq_val: Saldo actual para deudas directas en extrafinanciamientos de tarjetas de credito
+  sib_deuda_directa_tc_extrafinanciamientos_cnt: Cantidad de deudas directas en extrafinanciamientos de tarjetas de credito
+  sib_deuda_directa_tc_factorada_saldo_actual_deuda_gtq_val: Saldo actual para deudas directas en tarjetas de credito factoradas
+  sib_deuda_directa_tc_factorada_cnt: Cantidad de deudas directas en tarjetas de credito factoradas
+  sib_deuda_directa_tc_limite_otorgado_gtq_val: Limite total para deudas directas en tarjetas de credito
+  sib_deuda_directa_tc_factorada_limite_otorgado_gtq_val: Limite total para deudas directas en tarjetas de credito factorada
+  sib_deuda_indirecta_tc_limite_otorgado_gtq_val: Limite total para deudas indirectas en tarjetas de credito
+  sib_deuda_indirecta_saldo_actual_deuda_gtq_val: Saldo actual para deudas indirectas
+  sib_saldo_actual_deudas_indirectas_val: Saldo actual para deudas indirectas
+  sib_deudas_indirectas_cnt: Cantidad de deudas indirectas
+  sib_deuda_indirecta_monto_otorgado_gtq_val: Monto total para deudas indirectas
+  sib_deuda_directa_activo_cnt: Cantidad de deudas directas en estatus activo
+  sib_deuda_directa_cambio_de_tipo_tc_cnt: Cantidad de deudas directas en estatus cambio de tipo tc
+  sib_deuda_directa_cancelacion_adjudicacion_de_bienes_cnt: Cantidad de deudas directas en estatus adjudicacion de bienes
+  sib_deuda_directa_cancelacion_adjudicacion_de_garantias_cnt: Cantidad de deudas directas en estatus adjudicacion de garantias
+  sib_deuda_directa_cancelacion_convenio_pago_cnt: Cantidad de deudas directas en estatus cancelacion convenio de pago
+  sib_deuda_directa_cancelacion_por_novacion_cnt: Cantidad de deudas directas en estatus cancelacion por novacion
+  sib_deuda_directa_incobrable_pendiente_pago_deudor_cnt: Cantidad de deudas directas en estatus incobrarble pendiente pago deudor
+  sib_deuda_directa_robo_o_perdida_tc_cnt: Cantidad de deudas directas en estatus robo o perdida
+  sib_deuda_directa_venta_o_cesion_activo_posterior_a_declararse_incobrable_cnt: Cantidad de deudas directas en estatus venta o cesion activo posterior a declararse incobrable
+  sib_deuda_directa_venta_o_cesion_con_situacion_activo_cnt: Cantidad de deudas directas en estatus venta o cesion con situacion activo
+  sib_deuda_directa_cancelacion_cambio_garantia_cnt: Cantidad de deudas directas en estatus cancelacion cambio garantia
+  sib_deuda_directa_pagado_posterior_a_declararse_incobrable_cnt: Cantidad de deudas directas en estatus pagado posterior a declararse incobrable
+  sib_deuda_indirecta_activo_cnt: Cantidad de deudas inddirectas en estatus activo
+  sib_deuda_indirecta_cambio_de_tipo_tc_cnt: Cantidad de deudas indirectas en estatus cambio de tipo tc
+  sib_deuda_indirecta_cancelacion_convenio_pago_cnt: Cantidad de deudas indirectas en estatus cancelacion convenio de pago
+  sib_deuda_indirecta_cancelacion_por_novacion_cnt: Cantidad de deudas indirectas en estatus cancelacion por novacion
+  sib_deuda_indirecta_incobrable_pendiente_pago_deudor_cnt: Cantidad de deudas indirectas en estatus incobrarble pendiente pago deudor
+  sib_deuda_indirecta_venta_o_cesion_con_situacion_activo_cnt: Cantidad de deudas indirectas en estatus venta o cesion con situacion activo
+  sib_deuda_indirecta_robo_o_perdida_tc_cnt: Cantidad de deudas directas en estatus robo o perdida
+  _particion: Año y mes del periodo de observación
+  _observ_start_dt: Fecha correspondiente al primer día del mes

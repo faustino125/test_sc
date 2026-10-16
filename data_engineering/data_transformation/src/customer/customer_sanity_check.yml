@@ -1,0 +1,61 @@
+cli_cliente:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "_observ_end_dt"]
+    null_thresholds:
+      id_cliente: 0
+      _observ_end_dt: 0
+    severity: CRITICAL
+  dimensional:
+    enabled: true
+    dimensions:
+      cli_flag_cliente_5x1:
+        - 0
+        - 1
+      cli_carterizacion:
+        - banca_privada
+        - cliente_sin_saldo
+        - clientes_sin_saldo
+        - consumo_masivo
+        - desconocido
+        - empresa_grande
+        - empresa_mediana
+        - empresa_pequeña
+        - grupo_corporativo
+        - gubernamental
+        - infantil
+        - institucional
+        - institucional_bajo
+        - institucional_grande
+        - institucional_medio
+        - institucional_pequeña
+        - microempresa
+        - microempresa_individual
+        - personas_renta_alta
+        - personas_renta_baja
+        - personas_renta_media
+        - pymes_bajo
+        - pymes_medio
+        - saldo_acreedor
+        - sin_clasificacion_individual
+        - sobregirados
+        - teen
+        - universitario
+      cli_banca_favorita:
+        - atencion_al_publico
+        - banca_corporativa
+        - banca_personal
+        - bi-premium
+        - contecnica
+        - desconocido
+        - internacional
+        - microfinanzas
+        - no_codificado
+        - pymes
+        - vehiculos
+        - vivienda
+    severity: CRITICAL

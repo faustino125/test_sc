@@ -1,0 +1,22 @@
+inv_inversiones:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente","cuenta_corporativa","inv_id_producto"]
+  severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "cuenta_corporativa", "inv_id_producto", "_observ_end_dt"]
+    null_thresholds:
+      id_cliente: 0
+      cuenta_corporativa: 0
+      inv_id_producto: 0
+      _observ_end_dt: 0
+    severity: CRITICAL
+  dimensional:
+    enabled: true
+    dimensions:
+      inv_descripcion_producto:
+        - plan_dorado_de_inversion
+        - plan_futuro_programado
+        - plazo_fijo
+    severity: CRITICAL

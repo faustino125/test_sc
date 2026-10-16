@@ -1,0 +1,13 @@
+fields:
+  fecha_transaccion: "Fecha de la transacción"
+  id_cliente: "Código de cliente BI"
+  cuenta_corporativa: "Número de cuenta corporativa"
+  descripcion_tipo_transaccion: "Tipo de transacción"
+  descripcion_legajo: "Descripción del legajo"
+  id_legajo: "Número de legajo"
+  id_moneda: "Código de moneda"
+  descripcion_moneda: "Moneda de la transacción"
+  monto_transaccion: "Monto de la transacción"
+  descripcion_transaccion: "Descripción de la transacción"
+  _observ_start_dt: "Fecha de inicio del mes"
+  _observ_end_dt: "Fecha de fin del mes"

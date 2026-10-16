@@ -1,0 +1,32 @@
+data_transformation_flow:
+  - customer.customer_flow
+  - product.product_flow
+  - bel.bel_flow
+  - current_account.current_account_flow
+  - debit_card.debit_card_flow
+  - saving_account.saving_account_flow
+  - loan.loan_account_flow
+  - investment.investment_flow
+  - credit_card.credit_card_flow
+  - credit_card.additional_credit_card_flow
+  - physical_channel.physical_channel_flow
+  - bi_banking.bi_banking_flow
+  - autoriza.transactions_flow
+  - joint_account.joint_account_flow
+  - equifax_loan.eql_sib_debt_detail_flow
+  - equifax_loan.eql_sib_debt_history_flow
+  - equifax_loan.eql_tu_debt_detail_flow
+  - sib.sib_debt_detail_flow
+  - sib.sib_debt_history_flow
+
+full_load_flow:
+  - equifax_loan.eql_request_flow
+  - equifax_loan.eql_person_flow
+  - equifax_loan.eql_income_flow
+
+qa_flow:
+  - data_quality.check_date_flow
+
+dashboard_flow:
+  - dashboard.dashboard_volume_flow
+  - dashboard.dashboard_profile_flow

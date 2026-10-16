@@ -1,0 +1,26 @@
+mc_eqpr_deuda_sib:
+  duplicates:
+    enabled: true
+    primary_key: ["mc_eqpr_id_cliente_bi"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["mc_eqpr_id_cliente_bi", "_observ_end_dt"]
+    null_thresholds:
+      mc_eqpr_id_cliente_bi: 0
+      _observ_end_dt: 0
+    severity: HIGH
+
+
+mc_eqpr_ingresos:
+  duplicates:
+    enabled: true
+    primary_key: ["mc_eqpr_id_cliente_bi"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["mc_eqpr_id_cliente_bi", "_observ_end_dt"]
+    null_thresholds:
+      mc_eqpr_id_cliente_bi: 0
+      _observ_end_dt: 0
+    severity: HIGH

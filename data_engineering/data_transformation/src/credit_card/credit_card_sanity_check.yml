@@ -1,0 +1,28 @@
+tc_tarjeta_de_credito:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente", "cuenta_corporativa"]
+  severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "cuenta_corporativa", "_observ_end_dt"]
+    null_thresholds:
+      id_cliente: 0
+      cuenta_corporativa: 0
+      _observ_end_dt: 0
+    severity: CRITICAL
+
+tc_tarjeta_de_credito_adicional:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente", "tc_cuenta_corporativa_principal", "cuenta_corporativa"]
+  severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente","tc_cuenta_corporativa_principal","cuenta_corporativa", "fecha_informacion"]
+    null_thresholds:
+      id_cliente: 0
+      tc_cuenta_corporativa_principal: 0
+      cuenta_corporativa: 0
+      fecha_informacion: 0
+    severity: CRITICAL

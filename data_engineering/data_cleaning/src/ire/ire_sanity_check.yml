@@ -1,0 +1,13 @@
+ire_cliente_juridico:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente" ,"formulario"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "formulario", "fecha_informacion"]
+    null_thresholds:
+      id_cliente: 0
+      formulario: 0
+      fecha_informacion: 0
+    severity: CRITICAL

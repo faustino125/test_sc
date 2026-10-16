@@ -1,0 +1,13 @@
+fields:
+  _observ_end_dt: Fecha correspondiente al último día del mes
+  eqpr_id_numero_solicitud: Número de la solicitud
+  eqpr_id_cliente_persona: Código de cliente de equifax
+  eqpr_id_cliente_bi: Código de cliente BI
+  eqpr_fecha_reporte_ingresos: Fecha asociada a la solicitud creada para reportar los ingresos
+  eqpr_max_meses_trabajo: Cantidad de meses de estar trabajando
+  eqpr_min_fecha_ingreso_trabajo: Fecha miníma de ingreso
+  eqpr_empleos_reportados_cnt: Cantidad de empleos reportados
+  eqpr_salario_reportado_val: Salario reportado
+  eqpr_id_entidad: Código asociado al rol del la persona en la solicitud
+  eqpr_descripcion_entidad: Indica el rol de la persona en la solicitud
+  eqpr_agrupacion_entidad: Agrupación del rol de la persona en la solicitud

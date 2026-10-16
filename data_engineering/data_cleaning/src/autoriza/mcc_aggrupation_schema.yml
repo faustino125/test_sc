@@ -1,0 +1,7 @@
+fields:
+  fecha_catalogo: "Fecha catálogo MCC autoriza."
+  mcc: "MCC de la transacción."
+  descripcion_mcc: "Descripción MCC catálogo"
+  agrupacion_mcc: "descripción agrupación mcc"
+  _observ_start_dt: "Fecha observación Inicio."
+  _observ_end_dt: "Fecha observación final"

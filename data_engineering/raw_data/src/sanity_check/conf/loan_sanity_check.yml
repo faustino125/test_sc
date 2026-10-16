@@ -1,0 +1,27 @@
+#---------------- vw_coe_prestamos --------------------------------
+vw_coe_prestamos:
+  duplicates:
+    enabled: true
+    primary_key: ["DW_CODIGO_CLIENTE","DW_CUENTA_CORPORATIVA","DW_EMPRESA_DESCRIPCION"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["DW_CODIGO_CLIENTE", "DW_CUENTA_CORPORATIVA","DW_EMPRESA_DESCRIPCION", "DW_FECHA_INFORMACION"]
+    null_thresholds:
+      DW_CODIGO_CLIENTE: 0           # 0% nulls allowed
+      DW_CUENTA_CORPORATIVA: 0       # 0% nulls allowed
+      DW_EMPRESA_DESCRIPCION: 0      # 0% nulls allowed
+      DW_FECHA_INFORMACION: 0        # 0% nulls allowed
+    severity: HIGH
+
+#---------------- vw_coe_prestamo_estado_crm --------------------------------
+vw_coe_prestamo_estado_crm:
+  null_values:
+    enabled: true
+    columns: ["numero_caso_crm", "dw_cuenta_corporativa","codigo_empresa","dw_fecha_transaccion"]
+    null_thresholds:
+      numero_caso_crm: 0              # 0% nulls allowed
+      dw_cuenta_corporativa: 0        # 0% nulls allowed
+      codigo_empresa: 0               # 0% nulls allowed
+      dw_fecha_transaccion: 0         # 0% nulls allowed
+    severity: MEDIUM

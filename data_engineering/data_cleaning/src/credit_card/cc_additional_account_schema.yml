@@ -1,0 +1,11 @@
+fields:
+  fecha_informacion: "Fecha asociada a la información del registro."
+  id_cliente: "Código de cliente."
+  cuenta_corporativa: "Número de tarjeta de crédito adicional."
+  cuenta_corporativa_principal: "Número de tarjeta de crédito principal."
+  fecha_apertura: "Fecha de apertura de la tarjeta adicional."
+  situacion_adicional: "Descripción estatus cuenta adicional."
+  situacion_cuenta_homologado: "Descripción estatus cuenta homologado."
+  producto_mala_situacion_flag: "Flag indicador mala situación tarjeta adicional"
+  _observ_start_dt: "Fecha inicio observación."
+  _observ_end_dt: "Fecha fin observación."

@@ -1,0 +1,30 @@
+fields:
+  _observ_end_dt: Fecha correspondiente al último día del mes
+  eqpr_fecha_transaccion: Fecha asociada a la información del registro
+  eqpr_buro_referencia: Buró de referencia para la consulta
+  eqpr_id_buro_externo: Código buró externo
+  eqpr_id_cliente_bi: Código de cliente BI
+  eqpr_id_numero_solicitud: Número de solicitud
+  eqpr_id_cliente_persona: Código de cliente persona en equifax
+  eqpr_id_entidad: Código asociado al rol del la persona en la solicitud
+  eqpr_descripcion_entidad: Indica el rol de la persona en la solicitud
+  eqpr_agrupacion_entidad: Agrupación del rol de la persona en la solicitud
+  eqpr_id_tipo_deuda: Código del tipo de deuda (directa o indirecta)
+  eqpr_descripcion_tipo_deuda: Descripción del estado de la deuda
+  eqpr_fecha_referencia_deuda: Fecha de referencia
+  eqpr_entidad: Entidad de la deuda (Solicitante principal o secundario)
+  eqpr_agrupacion_tipo_activo: Agrupación tipo de activo
+  eqpr_conteo_productos: Cantidad de productos
+  eqpr_monto_otorgado_gtq_val: Monto otorgado al cliente
+  eqpr_saldo_gtq_val: Saldo de la deuda
+  eqpr_saldo_pendiente_gtq_val: Saldo pendiente de la deuda
+  eqpr_saldo_vencido_deuda_gtq_val: Saldo vencido
+  eqpr_cuota_gtq_val: Cuota
+  eqpr_max_flag_mora_1_30_dias: Mora de 1 a 30 días
+  eqpr_max_flag_mora_31_60_dias: Mora de 31 a 60 días
+  eqpr_max_flag_mora_61_90_dias: Mora de 61 a 90 días
+  eqpr_max_flag_mora_91_120_dias: Mora de 91 a 120 días
+  eqpr_max_flag_mora_121_o_mas_dias: Mora mayor a 120 días
+  eqpr_peor_estado_deuda_descripcion: Descripción del peor estado de la deuda registrado
+  _particion: "Separación de año y més correspondiente a los datos"
+  _observ_start_dt: "Fecha correspondiente al primer día del mes"

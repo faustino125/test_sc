@@ -1,0 +1,7 @@
+fields:
+  id_crm: "Código asociado al caso de crm"
+  cuenta_corporativa: "Número del préstamo"
+  fecha_carga: "Fecha de carga de la información"
+  id_empresa: "Código de la empresa"
+  id_estado_crm: "código del estado del caso"
+  descripcion_estado_crm: "Descripción del estado"

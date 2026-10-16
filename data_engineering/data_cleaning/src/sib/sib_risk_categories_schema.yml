@@ -1,0 +1,6 @@
+fields:
+  fecha_catalogo: "Fecha de catalogo"
+  id_categoria_riesgo: "ID categoria de riesgo"
+  descripcion_categoria_riesgo: "Descripcion categoria de riesgo"
+  _observ_start_dt: "Fecha de inicio del mes"
+  _observ_end_dt: "Fecha de fin del mes"

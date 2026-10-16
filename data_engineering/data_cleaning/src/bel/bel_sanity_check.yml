@@ -1,0 +1,26 @@
+bel_inicio_sesion:
+  duplicates:
+    enabled: true
+    primary_key: ["id_instalacion"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_instalacion","_observ_end_dt"]
+    null_thresholds:
+      id_instalacion: 0
+      _observ_end_dt: 0
+    severity: CRITICAL
+
+bel_catalogo_usuario:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente","id_instalacion"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente","id_instalacion","fecha_catalogo"]
+    null_thresholds:
+      id_cliente: 0
+      id_instalacion: 0
+      fecha_catalogo: 0
+    severity: CRITICAL

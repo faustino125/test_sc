@@ -1,0 +1,513 @@
+
+common_parquet: &common_parquet
+  additional_raw_option: "/*/*/*"
+  file_extension: parquet
+
+transactional: &transactional fecha_transaccion
+snapshot: &snapshot fecha_informacion
+catalog: &catalog fecha_catalogo
+
+_spark_json: &_spark_json
+  file_extension: json
+
+Input:
+  raw_customer:
+    <<: *common_parquet
+    path: "banco_industrial/clientes/snapshot/vw_Mksy_clientes"
+    description: "Datos crudos de clientes BI"
+    input_partition_col: *snapshot
+    partition_col: "DW_FECHA_INFORMACION"
+
+  raw_cc_categories:
+    <<: *common_parquet
+    path: "banco_industrial/tarjeta_credito/catalogo/vw_coe_tc_catalogo_producto"
+    additional_raw_option: ""
+    description: "Datos crudos del catálogo de tarjeta de crédito"
+    input_partition_col: *catalog
+    partition_col: "DW_FECHA_INFORMACION"
+
+  raw_mcc_aggrupation:
+    <<: *common_parquet
+    path: "banco_industrial/autoriza/catalogo/vw_coe_au_catalogo_mcc/"
+    additional_raw_option: ""
+    description: "Datos crudos del catálogo de mcc de autoriza."
+    input_partition_col: *catalog
+    partition_col: "dw_fecha_informacion"
+
+  raw_income:
+    <<: *common_parquet
+    path: "banco_industrial/clientes/snapshot/vw_Mksy_cif_planilla"
+    description: "Datos crudos de los ingresos de clientes planilla"
+    input_partition_col: *snapshot
+    partition_col: "DW_FECHA_INFORMACION"
+
+  raw_ire_information:
+    <<: *common_parquet
+    path: "banco_industrial/clientes/snapshot/vw_COE_IRE_ingresos"
+    description: "Datos crudos de formulario IRE"
+    input_partition_col: *snapshot
+    partition_col: "dw_fecha_informacion"
+
+  raw_main_address:
+    <<: *common_parquet
+    path: "banco_industrial/clientes/full_load/vw_COE_Direccion_Principal"
+    additional_raw_option: ""
+    description: "Datos crudos de direcciones principales"
+    input_partition_col: *catalog
+    partition_col: ""
+
+  raw_products:
+    <<: *common_parquet
+    path: "banco_industrial/productos_clientes/snapshot/vw_coe_productos_clientes"
+    description: "Datos crudos de productos clientes"
+    input_partition_col: *snapshot
+    partition_col: "DW_FECHA_INFORMACION"
+
+  raw_bel_app_transfers:
+    <<: *common_parquet
+    path: banco_industrial/app/transaccional/vw_coe_bel_app_trx
+    description: "Datos crudos de transferencias realizadas en Bi En Línea app"
+    input_partition_col: *transactional
+    partition_col: fecha
+
+  raw_bel_web_transfers:
+    <<: *common_parquet
+    path: banco_industrial/bel/transaccional/vw_coe_bel_web_trx
+    description: "Datos crudos de transferencias realizadas en Bi En línea web"
+    input_partition_col: *transactional
+    partition_col: fecha_transaccion
+
+  raw_bbk_bancasat:
+    <<: *common_parquet
+    path: "banco_industrial/bi_banking/transaccional/vw_coe_bbk_banca_sat_trx"
+    description: "Datos crudos de pagos Banca SAT realizados en Bi Banking"
+    input_partition_col: *transactional
+    partition_col: fecha_transaccion
+
+  raw_bbk_declaraguate:
+    <<: *common_parquet
+    path: "banco_industrial/bi_banking/transaccional/vw_coe_bbk_declaraguate_trx"
+    description: "Datos crudos de pagos DeclaraGuate realizados en Bi Banking"
+    input_partition_col: *transactional
+    partition_col: fecha_transaccion
+
+  raw_bbk_services_payments:
+    <<: *common_parquet
+    path: "banco_industrial/bi_banking/transaccional/vw_coe_bbk_pago_de_servicios_trx"
+    description: "Datos crudos de pagos de servicios realizados en Bi Banking"
+    input_partition_col: *transactional
+    partition_col: fecha_transaccion
+
+  raw_bbk_external_transfers:
+    <<: *common_parquet
+    path: "banco_industrial/bi_banking/transaccional/vw_coe_bbk_transferencias_al_exterior_trx"
+    description: "Datos crudos de transferencias al exterior realizadas en Bi Banking"
+    input_partition_col: *transactional
+    partition_col: fecha_transaccion
+
+  raw_bbk_ach_transfers:
+    <<: *common_parquet
+    path: "banco_industrial/bi_banking/transaccional/vw_coe_bbk_ach_trx"
+    description: "Datos crudos de transferencias ach realizadas en Bi Banking"
+    input_partition_col: *transactional
+    partition_col: fecha_transaccion
+
+  raw_bbk_prepaid:
+    <<: *common_parquet
+    path: "banco_industrial/bi_banking/transaccional/vw_coe_bbk_prepago_trx"
+    description: "Datos crudos prepago de Bi Banking"
+    input_partition_col: *transactional
+    partition_col: fecha_transaccion
+
+  raw_bbk_igss_agexport:
+    <<: *common_parquet
+    path: "banco_industrial/bi_banking/transaccional/vw_coe_bbk_igss_agexport_trx"
+    description: "Datos crudos de pagos IGSS Agexport en Bi Banking"
+    input_partition_col: *transactional
+    partition_col: fecha_transaccion
+
+  raw_bbk_electronic_payment:
+    <<: *common_parquet
+    path: "banco_industrial/bi_banking/transaccional/vw_coe_bbk_pago_electronico_trx"
+    description: "Datos crudos de pagos electrónicos en Bi Banking"
+    input_partition_col: *transactional
+    partition_col: fecha_transaccion
+
+  raw_bbk_general_operations:
+    <<: *common_parquet
+    path: "banco_industrial/bi_banking/transaccional/vw_coe_bbk_operaciones_generales_trx"
+    description: "Datos crudos de operaciones generales de Bi Banking"
+    input_partition_col: *transactional
+    partition_col: fecha_transaccion
+
+  raw_bbk_regional_connection:
+    <<: *common_parquet
+    path: "banco_industrial/bi_banking/transaccional/vw_coe_bbk_conexion_regional_trx"
+    description: "Datos crudos de tranferencia de conexión regional en Bi Banking"
+    input_partition_col: *transactional
+    partition_col: fecha_transaccion
+
+  raw_bbk_supplier_payments:
+    <<: *common_parquet
+    path: "banco_industrial/bi_banking/transaccional/vw_COE_Pago_Proveedores_BBK"
+    description: "Datos crudos de pago a proveedores en Bi Banking"
+    input_partition_col: *transactional
+    partition_col: Fecha
+
+  raw_bel_users:
+    <<: *common_parquet
+    path: "banco_industrial/bel/full_load/vw_coe_bel_instalacion"
+    additional_raw_option: ""
+    description: "Datos crudos de usuarios de Bi En Línea"
+    input_partition_col: *catalog
+    partition_col: ""
+
+  raw_bel_logins:
+    <<: *common_parquet
+    path: "banco_industrial/bel/snapshot/vw_coe_bel_usuariocli"
+    description: "Datos crudos de inicio de sesión en Bi En Línea"
+    input_partition_col: *snapshot
+    partition_col: DW_FECHA_INFORMACION
+
+  raw_bel_app_master:
+    <<: *common_parquet
+    path: "banco_industrial/app/transaccional/vw_coe_app_HistMaster"
+    description: "Datos crudos del maestro histórico de Bi en Línea app"
+    input_partition_col: *transactional
+    partition_col: fecha
+
+  raw_daily_exchange:
+    <<: *common_parquet
+    path: "banco_industrial/tasa_cambio/transaccional/vw_coe_tipo_cambio"
+    description: "Datos crudos del tipo de cambio del día"
+    input_partition_col: *transactional
+    partition_col: "Fecha_Informacion"
+
+  raw_employee:
+    <<: *common_parquet
+    path: "banco_industrial/empleados/snapshot/vw_COE_empleados"
+    description: "Datos crudos de empleados de la corporación"
+    input_partition_col: *snapshot
+    partition_col: "dw_fecha_informacion"
+
+  raw_forex_trading:
+    <<: *common_parquet
+    path: "banco_industrial/divisas/transaccional/vw_coe_md_negociaciones"
+    description: "Datos crudos de negociaciones en mesa de divisas"
+    input_partition_col: *transactional
+    partition_col: "Fecha_Operacion"
+
+  raw_forex_digital:
+    <<: *common_parquet
+    path: "banco_industrial/divisas/transaccional/vw_coe_neg_bancas"
+    description: "Datos crudos de negociaciaciones de divisas en bancas"
+    input_partition_col: *transactional
+    partition_col: "Fecha_Operacion"
+
+  raw_forex_branches:
+    <<: *common_parquet
+    path: "banco_industrial/divisas/transaccional/vw_coe_neg_cajas"
+    description: "Datos crudos de negociaciones de divisas en agencias"
+    input_partition_col: *transactional
+    partition_col: "FECHA"
+
+  raw_loan_account:
+    <<: *common_parquet
+    path: "banco_industrial/prestamos/snapshot/vw_coe_prestamos"
+    description: "Datos crudos de préstamos"
+    input_partition_col: *snapshot
+    partition_col: "DW_FECHA_INFORMACION"
+
+  raw_current_account:
+      <<: *common_parquet
+      path: "banco_industrial/monetarios/snapshot/vw_COE_Monetarios"
+      description: "Datos crudos de cuentas monetarias"
+      input_partition_col: *snapshot
+      partition_col: "DW_FECHA_INFORMACION"
+
+  raw_current_account_transaction:
+      <<: *common_parquet
+      path: "banco_industrial/monetarios/transaccional/vw_Mksy_transacciones_monetarios"
+      description: "Datos crudos de transacciones monetarias"
+      input_partition_col: *transactional
+      partition_col: "DW_FECHA"
+
+  raw_cards_transactions:
+    <<: *common_parquet
+    path: "banco_industrial/autoriza/transaccional/vw_coe_autoriza"
+    description: "Datos crudos de transacciones realizadas con tarjetas desde un POS."
+    input_partition_col: *transactional
+    partition_col: fecha_transaccion
+
+  raw_fixed_term:
+      <<: *common_parquet
+      path: "banco_industrial/plazo_fijo/snapshot/vw_COE_plazofijo"
+      description: "Datos crudos de plazos fijos"
+      input_partition_col: *snapshot
+      partition_col: "DW_FECHA_INFORMACION"
+
+  raw_fixed_term_transactions:
+      <<: *common_parquet
+      path: "banco_industrial/plazo_fijo/transaccional/vw_COE_plazofijo_trx"
+      description: "Datos crudos de transacciones en cuentas de plazo fijo"
+      input_partition_col: *transactional
+      partition_col: "DW_FECHA_OPERACION"
+
+  raw_scheduled_future_plan:
+      <<: *common_parquet
+      path: "banco_industrial/plan_futuro/snapshot/vw_COE_planfuturo"
+      description: "Datos crudos de plan futuro"
+      input_partition_col: *snapshot
+      partition_col: "DW_FECHA_INFORMACION"
+
+  raw_scheduled_future_transactions:
+      <<: *common_parquet
+      path: "banco_industrial/plan_futuro/transaccional/vw_COE_planfuturo_trx"
+      description: "Datos crudos de transacciones en cuentas de plan futuro programado"
+      input_partition_col: *transactional
+      partition_col: "DW_FECHA_OPERACION"
+
+  raw_golden_investment_plan:
+      <<: *common_parquet
+      path: "banco_industrial/fondos/snapshot/vw_Mksy_fondos"
+      description: "Datos crudos de fondo de inversión"
+      input_partition_col: *snapshot
+      partition_col: "FECHA_INFORMACION"
+
+  raw_golden_investment_transactions:
+      <<: *common_parquet
+      path: "banco_industrial/fondos/transaccional/vw_COE_fondos_trx"
+      description: "Datos crudos de transacciones en cuentas de plan dorado de inversion"
+      input_partition_col: *transactional
+      partition_col: "DW_FECHA_OPERACION"
+
+  raw_joint_account:
+      <<: *common_parquet
+      path: "banco_industrial/mancomunadas/snapshot/vw_COE_Cuentas_Mancomunadas"
+      description: "Datos crudos de cuentas mancomunadas"
+      input_partition_col: *snapshot
+      partition_col: "DW_FECHA_INFORMACION"
+
+  raw_saving_account:
+      <<: *common_parquet
+      path: "banco_industrial/ahorros/snapshot/vw_coe_ahorros"
+      description: "Datos crudos de cuentas de ahorro"
+      input_partition_col: *snapshot
+      partition_col: "DW_FECHA_INFORMACION"
+
+  raw_saving_account_transaction:
+      <<: *common_parquet
+      path: "banco_industrial/ahorros/transaccional/vw_Mksy_transacciones_ahorros"
+      description: "Datos crudos de transacciones en cuentas de ahorro"
+      input_partition_col: *transactional
+      partition_col: "Fecha_Operacion"
+
+  raw_branch_operations:
+    <<: *common_parquet
+    path: "banco_industrial/agencias/transaccional/vw_coe_safius"
+    description: "Datos crudos de operaciones realizadas en agencias"
+    input_partition_col: *transactional
+    partition_col: "Dw_fecha_transaccion"
+
+  raw_qflow_branches:
+    <<: *common_parquet
+    path: "banco_industrial/agencias/catalogo/vw_coe_catalogo_agencia_qflow"
+    additional_raw_option: ""
+    description: "Datos crudos del catálogo de agencias qflow"
+    input_partition_col: *catalog
+    partition_col: "dw_fecha_informacion"
+
+  raw_debit_card:
+      <<: *common_parquet
+      path: "banco_industrial/tarjeta_debito/snapshot/vw_coe_tarjeta_debito"
+      description: "Datos crudos de tarjeta de débito"
+      input_partition_col: *snapshot
+      partition_col: "dw_fecha_informacion"
+
+  raw_cc_account:
+      <<: *common_parquet
+      path: "banco_industrial/tarjeta_credito/snapshot/vw_coe_cuenta_tc"
+      description: "Datos crudos de tarjeta de crédito"
+      input_partition_col: *snapshot
+      partition_col: "DW_FECHA_INFORMACION"
+
+  raw_cc_additional_account:
+      <<: *common_parquet
+      path: "banco_industrial/tarjeta_credito/snapshot/vw_Mksy_tc_adicionales"
+      description: "Datos crudos de tarjeta de crédito adicional"
+      input_partition_col: *snapshot
+      partition_col: "dw_fecha_informacion"
+
+  raw_cc_tenure_tsae83:
+      <<: *common_parquet
+      path: "banco_industrial/tarjeta_credito/snapshot/vw_coe_tc_tsae83_continuidad"
+      description: "Datos crudos de saldos cartera y mora e83 para tarjeta de crédito"
+      input_partition_col: *snapshot
+      partition_col: "DW_FECHA_INFORMACION"
+
+  raw_cc_balance:
+      <<: *common_parquet
+      path: "banco_industrial/tarjeta_credito/snapshot/vw_coe_tc_maestro_saldos_nl"
+      description: "Datos crudos de saldos nueva ley para tarjeta de crédito"
+      input_partition_col: *snapshot
+      partition_col: "DW_FECHA_INFORMACION"
+
+  raw_cc_updates:
+      <<: *common_parquet
+      path: "banco_industrial/tarjeta_credito/transaccional/vw_coe_tc_cambio_situacion_his"
+      description: "Datos crudos de cambios de situación de tarjetas de crédito"
+      input_partition_col: *transactional
+      partition_col: "FECHA_MODIFICACION"
+
+  raw_cc_transaction_universe:
+      <<: *common_parquet
+      path: "banco_industrial/tarjeta_credito/transaccional/vw_coe_tc_universo_transacciones"
+      description: "Datos crudos de las transacciones de tarjeta de crédito"
+      input_partition_col: *transactional
+      partition_col: "DW_Fecha_Operacion_r"
+
+  raw_cc_extra_financing:
+      <<: *common_parquet
+      path: "banco_industrial/tarjeta_credito/snapshot/vw_coe_tc_extrafinanciamiento"
+      description: "Datos crudos de extrafinanciamientos de tarjeta de crédito"
+      input_partition_col: *snapshot
+      partition_col: "dw_fecha_informacion"
+
+  raw_cc_statement_summary:
+      <<: *common_parquet
+      path: "banco_industrial/tarjeta_credito/snapshot/vw_coe_tc_estado_al_corte"
+      description: "Datos crudos del estado de cuenta de la tarjeta de crédito"
+      input_partition_col: *snapshot
+      partition_col: "dw_fecha_informacion"
+
+  raw_eql_sib_debt_detail:
+      <<: *common_parquet
+      path: "equifax/consumo/transaccional/vw_coe_eqf_consumo_buro_deuda"
+      description: "Datos crudos del detalle de deuda de las consultas SIB en equifax consumo"
+      input_partition_col: *transactional
+      partition_col: "fecha_consulta"
+
+  raw_eql_agencies_debt_detail:
+      <<: *common_parquet
+      path: "equifax/consumo/transaccional/vw_coe_eqf_consumo_buro_credito"
+      description: "Datos crudos del detalle de deuda de las consultas de TU e INET en equifax consumo"
+      input_partition_col: *transactional
+      partition_col: "fecha_consulta"
+
+  raw_eql_external_bureau:
+      <<: *common_parquet
+      path: "equifax/consumo/transaccional/vw_coe_eqf_consumo_buro_externo"
+      description: "Datos crudos de buró externo en equifax consumo"
+      input_partition_col: *transactional
+      partition_col: "fecha_consulta"
+
+  raw_eql_sib_debt_history:
+      <<: *common_parquet
+      path: "equifax/consumo/transaccional/vw_coe_eqf_consumo_buro_historial_deuda"
+      description: "Datos crudos del historial de deuda de las consultas SIB en equifax consumo"
+      input_partition_col: *transactional
+      partition_col: "fecha_consulta"
+
+  raw_eql_person:
+      <<: *common_parquet
+      path: "equifax/consumo/full_load/vw_coe_eqf_consumo_persona"
+      additional_raw_option: ""
+      description: "Datos crudos con información de clientes en equifax consumo"
+      input_partition_col: *catalog
+      partition_col: "dw_fecha_informacion"
+
+  raw_eql_person_request:
+      <<: *common_parquet
+      path: "equifax/consumo/full_load/vw_coe_eqf_consumo_solicitud_persona"
+      additional_raw_option: ""
+      description: "Datos crudos con información de las solicitudes por persona en equifax consumo"
+      input_partition_col: *catalog
+      partition_col: "dw_fecha_informacion"
+
+  raw_eql_request:
+      <<: *common_parquet
+      path: "equifax/consumo/full_load/vw_coe_eqf_consumo_solicitud"
+      additional_raw_option: ""
+      description: "Datos crudos con información de las solicitudes en equifax consumo"
+      input_partition_col: *catalog
+      partition_col: ""
+
+  raw_loan_case:
+      <<: *common_parquet
+      path: "banco_industrial/prestamos/full_load/vw_coe_prestamo_estado_crm"
+      additional_raw_option: ""
+      description: "Datos crudos con información de los casos casos de crm para préstamos"
+      input_partition_col: *catalog
+      partition_col: ""
+
+  raw_iniciativas_leads:
+      <<: *common_parquet
+      path: "banco_industrial/clientes/snapshot/vw_coe_leads_iniciativas"
+      description: "Datos crudos de las iniciativas de leads para clientes BI"
+      input_partition_col: *snapshot
+      partition_col: "fecha_informacion"
+
+  raw_exclusion_campanias:
+      <<: *common_parquet
+      path: "banco_industrial/clientes/snapshot/vw_coe_exclusion_campanias"
+      description: "Datos crudos de exclusión de campañas para clientes BI"
+      input_partition_col: *snapshot
+      partition_col: "fecha_informacion"
+
+  raw_sib_risk_category:
+      <<: *common_parquet
+      path: "sib/full_load/vw_coe_sib_categoria_riesgo"
+      description: "Datos crudos de SIB para definir categorias de riesgo"
+      additional_raw_option: ""
+      input_partition_col: *catalog
+      partition_col: "dw_fecha_informacion"
+
+  raw_sib_debt_detail:
+      <<: *common_parquet
+      path: "sib/transaccional/vw_coe_sib_deuda"
+      description: "Datos crudos de SIB para detalle de deudas"
+      input_partition_col: *transactional
+      partition_col: "dw_fecha_consulta"
+
+  raw_sib_general_data:
+      <<: *common_parquet
+      path: "sib/transaccional/vw_coe_sib_info_general"
+      description: "Datos crudos de SIB para informacion general de deudas del cliente"
+      input_partition_col: *transactional
+      partition_col: "dw_fecha_consulta"
+
+  raw_sib_debt_history:
+      <<: *common_parquet
+      path: "sib/transaccional/vw_coe_sib_historial_deuda"
+      description: "Datos crudos de SIB para historial de deuda del cliente"
+      input_partition_col: *transactional
+      partition_col: "dw_fecha_consulta"
+
+  raw_sib_entry_point:
+      <<: *common_parquet
+      path: "sib/transaccional/vw_coe_sib_tabla_equivalencias"
+      description: "Datos crudos de SIB para mapeo id externo a id cliente BI"
+      input_partition_col: *catalog
+      partition_col: "dw_fecha"
+
+  raw_sib_active_products:
+      <<: *common_parquet
+      path: "sib/transaccional/vw_coe_sib_comportamiento_vigentes"
+      description: "Datos crudos de SIB para consultas de productos activos"
+      input_partition_col: *transactional
+      partition_col: "dw_fecha_consulta"
+
+  raw_legal_financial_information:
+    <<: *common_parquet
+    path: "banco_industrial/informacion_financiera/catalogo/vw_coe_informacion_financiera_juridico/"
+    additional_raw_option: ""
+    description: "Datos crudos de información financiera histórica de clientes jurídicos."
+    input_partition_col: *catalog
+    partition_col: "dw_fecha_informacion"
+
+  raw_cc_customer_extra_financing:
+      <<: *common_parquet
+      path: "banco_industrial/tarjeta_credito/snapshot/vw_coe_tc_extrafinanciamiento_por_cliente"
+      description: "Datos crudos de extrafinanciamientos por cliente"
+      input_partition_col: *snapshot
+      partition_col: "dw_fecha_informacion"

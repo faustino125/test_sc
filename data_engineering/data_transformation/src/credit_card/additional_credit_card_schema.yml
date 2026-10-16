@@ -1,0 +1,11 @@
+fields:
+  _observ_end_dt: "Fecha fin observación."
+  id_cliente: "Código de cliente"
+  cuenta_corporativa: "Número de tarjeta de crédito adicional."
+  tc_cuenta_corporativa_principal: "Número de tarjeta de crédito principal"
+  tc_situacion_adicional: "Situación tarjeta adicional"
+  tc_situacion_adicional_homologado: "Situación tarjeta adicional homologado."
+  tc_producto_mala_situacion_flag : "Indicador Tarjeta adicional mala situación."
+  tc_fecha_apertura_adicional: "Fecha apertura tarjeta adicional."
+  _particion: "Periodo en operación (Año y mes)."
+  _observ_start_dt: "Fecha inicio observación."

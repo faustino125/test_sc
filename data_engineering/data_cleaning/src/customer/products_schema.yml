@@ -1,0 +1,8 @@
+fields:
+  fecha_informacion: "Fecha asociada a la información del registro"
+  id_cliente: "Código de cliente BI"
+  cuenta_corporativa: "Identificador que representa una cuenta específica del cliente"
+  id_aplicacion: "Código para identificar el tipo de cuenta que posee el cliente"
+  descripcion_aplicacion: "Dato que identifica el tipo de cuenta que posee el cliente"
+  _observ_start_dt: "Fecha correspondiente al primer día del mes"
+  _observ_end_dt: "Fecha correspondiente al último día del mes"

@@ -1,0 +1,8 @@
+fields:
+  fecha_catalogo: "Fecha asociada a la información del registro"
+  id_cliente: "Código de cliente BI"
+  departamento_residencia: "Nombre del departamento correspondiente al domicilio del cliente"
+  municipio_residencia:  "Nombre del municipio correspondiente al domicilio del cliente"
+  flag_zona_roja: "Campo binario utilizado para identifizar si el cliente se encuentra en una zona clasificada de alto riesgo"
+  _observ_start_dt: "Fecha correspondiente al primer día del mes"
+  _observ_end_dt: "Fecha correspondiente al último día del mes"

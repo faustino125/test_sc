@@ -1,0 +1,65 @@
+snapshot_flow:
+  - customer.customer_flow
+  - customer.income_flow
+  - customer.products_flow
+  - customer.leads_iniciativa_flow
+  - ire.legal_client_flow
+  - bel.bel_logins_flow
+  - employee.employee_flow
+  - loan.loan_account_flow
+  - current_account.current_account_flow
+  - investment.investment_flow
+  - saving_account.saving_account_flow
+  - debit_card.debit_card_flow
+  - credit_card.cc_account_flow
+  - credit_card.cc_additional_account_flow
+  - credit_card.cc_tenure_tsae83_flow
+  - credit_card.cc_balance_flow
+  - credit_card.cc_extra_financing_master_flow
+  - joint_account.joint_account_flow
+  - credit_card.cc_customer_extra_financing_flow
+
+transactional_flow:
+  - bel.app_transfers_flow
+  - bel.app_master_flow
+  - bel.bel_web_transfers_flow
+  - bi_banking.bbk_transaction_flow
+  - bi_banking.bbk_supplier_payments_flow
+  - foreign_exchange.daily_exchange_flow
+  - foreign_exchange.forex_transaction_flow
+  - current_account.current_account_transaction_flow
+  - autoriza.cards_transactions_flow
+  - saving_account.saving_account_transaction_flow
+  - physical_channel.physical_channel_flow
+  - credit_card.cc_updates_flow
+  - credit_card.cc_transaction_universe_flow
+  - investment.investment_transaction_flow
+  - equifax_loan.eql_external_bureau_flow
+  - equifax_loan.eql_sib_debt_detail_flow
+  - equifax_loan.eql_agencies_debt_detail_flow
+  - equifax_loan.eql_sib_debt_history_flow
+  - sib.sib_debt_detail_flow
+  - sib.sib_general_data_flow
+  - sib.sib_debt_history_flow
+  - sib.sib_active_products_flow
+
+catalog_flow:
+  - customer.legal_financial_information_flow
+  - customer.main_address_flow
+  - credit_card.cc_categories_flow
+  - autoriza.mcc_aggrupation_flow
+  - physical_channel.qflow_branches_flow
+  - equifax_loan.eql_person_flow
+  - equifax_loan.eql_person_request_flow
+  - equifax_loan.eql_request_flow
+  - loan.loan_case_flow
+  - bel.bel_users_flow
+  - sib.sib_risk_categories_flow
+  - sib.sib_entry_point_flow
+
+qa_flow:
+  - data_quality.check_date_flow
+
+dashboard_flow:
+  - dashboard.dashboard_volume_flow
+  - dashboard.dashboard_profile_flow

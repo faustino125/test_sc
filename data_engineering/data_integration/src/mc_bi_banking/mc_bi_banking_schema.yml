@@ -1,0 +1,8 @@
+fields:
+  _observ_end_dt: "Fecha correspondiente al último día del mes."
+  id_cliente: "Codigo de cliente."
+  mc_bbk_ach_pago_planilla_quetzalizado_sum_val: "Monto de transferencias ACH por pago de planilla quetzalizado"
+  mc_bbk_ach_concentracion_fondos_bi_quetzalizado_sum_val: "Monto de transferencias ACH por concentracion de fondos quetzalizado."
+  mc_bbk_transacciones_cnt: "Cantidad de transacciones."
+  _particion: "Año y mes del periodo de observación."
+  _observ_start_dt: "Fecha correspondiente al primer día del mes."

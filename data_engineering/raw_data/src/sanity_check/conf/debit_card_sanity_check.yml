@@ -1,0 +1,14 @@
+#---------------- vw_coe_tarjeta_debito --------------------------------
+vw_coe_tarjeta_debito:
+  duplicates:
+    enabled: true
+    primary_key: ["dw_cuenta_corporativa"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["codigo_cliente", "dw_cuenta_corporativa", "dw_fecha_informacion"]
+    null_thresholds:
+      codigo_cliente: 0              # 0% nulls allowed
+      dw_cuenta_corporativa: 0       # 0% nulls allowed
+      dw_fecha_informacion: 0        # 0% nulls allowed
+    severity: HIGH

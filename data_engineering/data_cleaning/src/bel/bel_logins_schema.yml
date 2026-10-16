@@ -1,0 +1,7 @@
+fields:
+  fecha_informacion: "Fecha de la información"
+  id_instalacion: "código de instalación"
+  fecha_creacion: "Fecha de creación del usuario"
+  ultimo_inicio_sesion: "Fecha del ultimo inicio de sesión."
+  _observ_start_dt: "Fecha observación de inicio."
+  _observ_end_dt: "Fecha observación final."

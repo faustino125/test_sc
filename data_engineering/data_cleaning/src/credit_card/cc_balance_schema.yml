@@ -1,0 +1,12 @@
+fields:
+  fecha_informacion: "Fecha asociada a la información del registro."
+  cuenta_corporativa: "Número de tarjeta de crédito."
+  saldo_capital_gtq: "Saldo capital en quetzales."
+  saldo_intereses_gtq: "Saldo intereses en quetzales"
+  saldo_otros_gtq: "Saldo otros en quetzales."
+  saldo_total_gtq: "Saldo total en quetzales."
+  saldo_capital_usd: "Saldo capital en dólares."
+  saldo_intereses_usd: "Saldo intereses en dólares."
+  saldo_total_usd: "Saldo total en dólares."
+  _observ_start_dt: "Fecha inicio observación."
+  _observ_end_dt: "Fecha fin observación."

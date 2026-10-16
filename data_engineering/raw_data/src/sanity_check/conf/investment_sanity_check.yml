@@ -1,0 +1,44 @@
+#---------------- vw_Mksy_fondos --------------------------------
+vw_Mksy_fondos:
+  duplicates:
+    enabled: true
+    primary_key: ["CODIGO_CLIENTE","CUENTA_CORPORATIVA"]
+  severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["CODIGO_CLIENTE","CUENTA_CORPORATIVA", "FECHA_INFORMACION"]
+    null_thresholds:
+      CODIGO_CLIENTE: 0     # 0% nulls allowed
+      FECHA_INFORMACION: 0  # 0% nulls allowed
+      CUENTA_CORPORATIVA: 0 # 0% nulls allowed
+    severity: HIGH
+
+#---------------- vw_COE_planfuturo --------------------------------
+vw_COE_planfuturo:
+  duplicates:
+    enabled: true
+    primary_key: ["DW_CODIGO_CLIENTE","DW_CUENTA_CORPORATIVA"]
+  severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["DW_CODIGO_CLIENTE","DW_CUENTA_CORPORATIVA", "DW_FECHA_INFORMACION"]
+    null_thresholds:
+      DW_CODIGO_CLIENTE: 0         # 0% nulls allowed
+      DW_FECHA_INFORMACION: 0   # 0% nulls allowed
+      DW_CUENTA_CORPORATIVA: 0     # 0% nulls allowed
+    severity: HIGH
+
+#---------------- vw_COE_plazofijo --------------------------------
+vw_COE_plazofijo:
+  duplicates:
+    enabled: true
+    primary_key: ["DW_CODIGO_CLIENTE","DW_CUENTA_CORPORATIVA"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["DW_CODIGO_CLIENTE","DW_CUENTA_CORPORATIVA", "DW_FECHA_INFORMACION"]
+    null_thresholds:
+      DW_CODIGO_CLIENTE: 0         # 0% nulls allowed
+      DW_FECHA_INFORMACION: 0   # 0% nulls allowed
+      DW_CUENTA_CORPORATIVA: 0     # 0% nulls allowed
+    severity: HIGH

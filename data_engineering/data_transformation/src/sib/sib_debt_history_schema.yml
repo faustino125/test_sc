@@ -1,0 +1,16 @@
+fields:
+  _observ_end_dt: Fecha correspondiente al último día del mes
+  id_cliente: Código de cliente BI
+  sib_id_persona: ID de persona en buró SIB
+  sib_fecha_historial_deuda: Fecha de la deuda del cliente
+  sib_id_tipo_deuda: ID del tipo de deuda para el cliente
+  sib_descripcion_tipo_deuda: Descripcion del tipo de deuda para el cliente
+  sib_total_deuda_val: Monto total de deuda en buro SIB
+  sib_max_dias_mora_capital: Cantidad máxima de dias de mora a capital
+  sib_max_dias_mora_intereses: Cantidad máxima de dias de mora a capital
+  sib_total_mora_capital_val: Monto máximo en mora capital
+  sib_total_mora_intereses_val: Monto máximo en mora intereses
+  sib_id_peor_categoria_riesgo_deuda: ID peor categoria de riesgo para el tipo de deuda
+  sib_descripcion_peor_categoria_riesgo_deuda: Descripcion peor categoria de riesgo para el tipo de deuda
+  _particion: Año y mes del periodo de observación
+  _observ_start_dt: Fecha correspondiente al primer día del mes

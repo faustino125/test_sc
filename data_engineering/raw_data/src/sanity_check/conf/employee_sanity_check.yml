@@ -1,0 +1,9 @@
+#---------------- vw_COE_empleados --------------------------------
+vw_COE_empleados:
+  null_values:
+    enabled: true
+    columns: ["Codigo_Cliente", "dw_fecha_informacion"]
+    null_thresholds:
+      Codigo_Cliente: 0             # 0% nulls allowed
+      dw_fecha_informacion: 0        # 0% nulls allowed
+    severity: HIGH

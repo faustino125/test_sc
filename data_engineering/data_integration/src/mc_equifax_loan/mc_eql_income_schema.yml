@@ -1,0 +1,8 @@
+fields:
+  mc_eqpr_id_cliente_bi: Código de cliente BI
+  mc_eqpr_fecha_reporte_ingresos: Fecha asociada a la solicitud creada para reportar los ingresos
+  mc_eqpr_max_meses_trabajo: Cantidad de meses de estar trabajando
+  mc_eqpr_min_fecha_ingreso_trabajo: Fecha miníma de ingreso
+  mc_eqpr_empleos_reportados_cnt: Cantidad de empleos reportados
+  mc_eqpr_salario_reportado_val: Salario reportado
+  _observ_end_dt: "Fecha correspondiente al último día del mes"

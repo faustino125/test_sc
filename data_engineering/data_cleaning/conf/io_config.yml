@@ -1,0 +1,418 @@
+transactional: &transactional fecha_transaccion
+snapshot: &snapshot fecha_informacion
+catalog: &catalog fecha_catalogo
+
+sanity_check_results:
+  Output: "sanity_check_results"
+  description: "Resultados de la comprobación de validación de datos"
+  input_partition_col: "_observ_end_dt"
+
+dashboard_volume:
+  Output: volume_data_dashboard
+  description: "Información de resumen de comportamiento y estadistica descriptiva para dashboard con granularidad por tabla"
+
+dashboard_profile:
+  Output: profile_data_dashboard
+  description: "Información de resumen de comportamiento y estadistica descriptiva para dashboard con granularidad por columna"
+
+customer:
+  Input:
+    - raw_customer
+  Output: cliente
+  input_partition_col: *snapshot
+  description: "Información mensual de los clientes de BI"
+
+products:
+  Input:
+    - raw_products
+  Output: producto_cliente
+  input_partition_col: *snapshot
+  description: "Catalogo de todas la cuentas y servicios que posee un cliente"
+
+income:
+  Input:
+    - raw_income
+  Output: cliente_planilla
+  input_partition_col: *snapshot
+  description: "Información de los ingresos mensuales de clientes planilla"
+
+legal_client:
+  Input:
+    - raw_ire_information
+  Output: cliente_juridico
+  input_partition_col: *snapshot
+  description: "Información mensual de los formularios IRE"
+
+main_address:
+  Input:
+    - raw_main_address
+  Output: catalogo_direccion_principal
+  input_partition_col: *catalog
+  description: "Catalogo de dirección principal del cliente"
+
+legal_financial_information:
+  Input:
+    - raw_legal_financial_information
+  Output: catalogo_informacion_financiera_juridico
+  input_partition_col: *catalog
+  description: "Catalogo de información financiera de clientes jurídicos"
+
+cc_categories:
+  Input:
+    - raw_cc_categories
+  Output: catalogo_categoria
+  input_partition_col: *catalog
+  description: "Catálogo para clasificar categorías de tc"
+
+mcc_aggrupation:
+  Input:
+    - raw_mcc_aggrupation
+  Output: catalogo_mcc
+  input_partition_col: *catalog
+  description: "Catálogo para agrupar categorias de mcc"
+
+
+app_transfers:
+  Input:
+    - raw_bel_app_transfers
+  Output: app_transferencia
+  input_partition_col: *transactional
+  description: "transferencias diarias realizadas desde bel app"
+
+bbk_transaction:
+  Input:
+    - raw_bbk_bancasat
+    - raw_bbk_declaraguate
+    - raw_bbk_services_payments
+    - raw_bbk_external_transfers
+    - raw_bbk_ach_transfers
+    - raw_bbk_prepaid
+    - raw_bbk_igss_agexport
+    - raw_bbk_electronic_payment
+    - raw_bbk_general_operations
+    - raw_bbk_regional_connection
+  Output: transacciones
+  input_partition_col: *transactional
+  description: "Información diaria de transacciones realizadas desde bbk"
+
+bel_web_transfers:
+  Input:
+    - raw_bel_web_transfers
+    - raw_products
+  Output: web_transferencia
+  input_partition_col: *transactional
+  description: "Información diaria de transferencias ach, propias, móviles y a terceros realizadas en bel web"
+
+bbk_supplier_payments:
+  Input:
+    - raw_bbk_supplier_payments
+  Output: pago_proveedor
+  input_partition_col: *transactional
+  description: "Información diaria de pagos a proveedores realizados desde bbk"
+
+bel_users:
+  Input:
+    - raw_bel_users
+  Output: catalogo_usuario
+  input_partition_col: *catalog
+  description: "Información de usuarios bel"
+
+bel_logins:
+  Input:
+    - raw_bel_logins
+  Output: inicio_sesion
+  input_partition_col: *snapshot
+  description: "Información mensual de logins en bel"
+
+app_master:
+  Input:
+    - raw_bel_app_master
+  Output: app_master
+  input_partition_col: *transactional
+  description: "Información diaria del maestro de bel app"
+
+daily_exchange:
+  Input:
+    - raw_daily_exchange
+  Output: tasa_cambio
+  input_partition_col: *transactional
+  description: "Información de la tasa de cambio del día"
+
+forex_transaction:
+  Input:
+    - raw_forex_trading
+    - raw_forex_digital
+    - raw_forex_branches
+  Output: compra_venta_divisa
+  input_partition_col: *transactional
+  description: "Información diaria de compra y venta de divisas"
+
+employee:
+  Input:
+    - raw_employee
+  Output: empleado
+  input_partition_col: *snapshot
+  description: "Informacion mensual de los empleados de la corporación"
+
+
+loan_account:
+  Input:
+    - raw_loan_account
+  Output: prestamo
+  input_partition_col: *snapshot
+  description: "Información mensual de préstamos"
+
+current_account:
+  Input:
+    - raw_current_account
+  Output: cuenta
+  input_partition_col: *snapshot
+  description: "Información mensual de cuentas monetarias"
+
+current_account_transaction:
+  Input:
+    - raw_current_account_transaction
+  Output: transaccion
+  input_partition_col: *transactional
+  description: "Información diaria de las transacciones asociadas a una cuenta monetaria"
+
+cards_transactions:
+  Input:
+    - raw_cards_transactions
+  Output: transaccion_tarjetas
+  input_partition_col: *transactional
+  description: "Información de las transacciones diarias realizadas con una tarjeta desde un POS"
+
+investment:
+  Input:
+    - raw_fixed_term
+    - raw_scheduled_future_plan
+    - raw_golden_investment_plan
+  Output: inversiones
+  input_partition_col: *snapshot
+  description: "Informacion mensual de plazo fijo, plan dorado de inversion y plan futuro programado"
+
+investment_transaction:
+  Input:
+    - raw_fixed_term_transactions
+    - raw_scheduled_future_transactions
+    - raw_golden_investment_transactions
+  Output: transaccion
+  input_partition_col: *transactional
+  description: "Informacion de las transacciones diarias de plazo fijo, plan dorado de inversion y plan futuro programado"
+
+saving_account:
+  Input:
+    - raw_saving_account
+  Output: cuenta
+  input_partition_col: *snapshot
+  description: "Información mensual de cuentas de ahorro"
+
+saving_account_transaction:
+  Input:
+    - raw_saving_account_transaction
+  Output: transaccion
+  input_partition_col: *transactional
+  description: "Información diaria de las transacciones asociadas a una cuenta ahorro"
+
+physical_channel:
+  Input:
+    - raw_branch_operations
+  Output: transaccion
+  input_partition_col: *transactional
+  description: "Información de las transacciones diarias realizadas en una agencia"
+
+qflow_branches:
+  Input:
+    - raw_qflow_branches
+  Output: catalogo_agencia_qflow
+  input_partition_col: *catalog
+  description: "Información de las transacciones realizadas en una agencia qflow"
+
+debit_card:
+  Input:
+    - raw_debit_card
+  Output: cuenta
+  input_partition_col: *snapshot
+  description: "Información mensual de la cuenta de tarjeta de débito"
+
+check_date:
+  Output: control_rango_fechas
+  description: "Verifica que todos los flows de data cleaning tengan información del mes anterior"
+
+cc_account:
+  Input:
+    - raw_cc_account
+    - raw_cc_statement_summary
+  Output: cuenta_principal
+  input_partition_col: *snapshot
+  description: "Información mensual de tarjeta de crédito"
+
+cc_additional_account:
+  Input:
+    - raw_cc_additional_account
+  Output: cuenta_adicional
+  input_partition_col: *snapshot
+  description: "Información mensual de tarjeta de crédito adicional"
+
+cc_tenure_tsae83:
+  Input:
+    - raw_cc_tenure_tsae83
+  Output: mora_tsae83
+  input_partition_col: *snapshot
+  description: "Información mensual de mora en tarjeta de crédito"
+
+cc_balance:
+  Input:
+    - raw_cc_balance
+  Output: maestro_saldos
+  input_partition_col: *snapshot
+  description: "Información mensual de balance de saldos en tarjeta de crédito"
+
+cc_updates:
+  Input:
+    - raw_cc_updates
+  Output: cambios_cuenta
+  input_partition_col: *transactional
+  description: "Información diaria sobre cambios en tarjeta de crédito"
+
+cc_transaction_universe:
+  Input:
+    - raw_cc_transaction_universe
+  Output: universo_transacciones
+  input_partition_col: *transactional
+  description: "Información diaria sobre transacciones realizadas con tarjeta de crédito en el módulo de tarjeta de crédito"
+
+cc_extra_financing_master:
+  Input:
+    - raw_cc_extra_financing
+  Output: maestro_extrafinanciamiento
+  input_partition_col: *snapshot
+  description: "Información mensual de financiamientos por tarjeta de crédito"
+
+joint_account:
+  Input:
+    - raw_joint_account
+  Output: mancomunada
+  input_partition_col: *snapshot
+  description: "Informacion mensual de cuentas mancomunadas"
+
+eql_sib_debt_detail:
+  Input:
+    - raw_eql_sib_debt_detail
+  Output: detalle_deuda_sib
+  input_partition_col: *transactional
+  description: "Información diaria del detalle de deuda de las consultas SIB en equifax consumo"
+
+eql_agencies_debt_detail:
+  Input:
+    - raw_eql_agencies_debt_detail
+  Output: detalle_deuda_tu_inet
+  input_partition_col: *transactional
+  description: "Información diaria del detalle de deuda de las consultas de TU e INET en equifax consumo"
+
+eql_external_bureau:
+  Input:
+    - raw_eql_external_bureau
+  Output: buro_externo
+  input_partition_col: *transactional
+  description: "Información de buró externo en equifax consumo"
+
+eql_sib_debt_history:
+  Input:
+    - raw_eql_sib_debt_history
+  Output: historial_deuda_sib
+  input_partition_col: *transactional
+  description: "Información diaria del historial de deuda de equifax consumo"
+
+eql_person:
+  Input:
+    - raw_eql_person
+  Output: persona
+  input_partition_col: *catalog
+  description: "Información de los clientes en equifax consumo"
+
+eql_person_request:
+  Input:
+    - raw_eql_person_request
+  Output: solicitud_persona
+  input_partition_col: *catalog
+  description: "Información de las solicitudes por persona en equifax consumo"
+
+eql_request:
+  Input:
+    - raw_eql_request
+  Output: solicitud
+  input_partition_col: *catalog
+  description: "Información de las solicitudes en equifax consumo"
+
+loan_case:
+  Input:
+    - raw_loan_case
+  Output: estado_crm
+  input_partition_col: *catalog
+  description: "Información de las casos de crm para préstamos"
+
+leads_iniciativa:
+  Input:
+    - raw_iniciativas_leads
+    - raw_exclusion_campanias
+  Output: leads
+  input_partition_col: *snapshot
+  description: "Información de las iniciativas de leads para clientes BI"
+
+sib_risk_categories:
+  Input:
+    - raw_sib_risk_category
+  Output: categoria_riesgo
+  input_partition_col: *catalog
+  description: "Información de SIB sobre categorias de riesgo"
+
+sib_debt_detail:
+  Input:
+    - raw_sib_debt_detail
+  Output: detalle_deuda
+  input_partition_col: *transactional
+  description: "Información de SIB sobre todos los productos"
+
+sib_general_data:
+  Input:
+    - raw_sib_general_data
+  Output: informacion_general
+  input_partition_col: *transactional
+  description: "Información general de productos en SIB"
+
+sib_debt_history:
+  Input:
+    - raw_sib_debt_history
+  Output: historial_deuda
+  input_partition_col: *transactional
+  description: "Información de historial de deuda en SIB"
+
+sib_entry_point:
+  Input:
+    - raw_sib_entry_point
+  Output: equivalencia_cif_bi
+  input_partition_col: *catalog
+  description: "Información de mapeo id externo a id cliente BI"
+
+sib_active_products:
+  Input:
+    - raw_sib_active_products
+  Output: productos_activos
+  input_partition_col: *transactional
+  description: "Información de SIB sobre productos activos"
+
+sanity_check:
+  Input:
+    - all_tables
+  Output: historial_sanity_check
+  input_partition_col: "_observ_end_dt"
+  description: "Logs de calidad de datos generados por el Sanity Check"
+
+cc_customer_extra_financing:
+  Input:
+    - raw_cc_customer_extra_financing
+  Output: extrafinanciamiento_por_cliente
+  input_partition_col: *snapshot
+  description: "Información mensual de financiamientos por cliente"

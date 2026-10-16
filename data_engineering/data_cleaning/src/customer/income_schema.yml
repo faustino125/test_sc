@@ -1,0 +1,6 @@
+fields:
+  fecha_informacion: "Fecha asociada a la información del registro"
+  id_cliente: "Código de cliente BI"
+  monto_promedio: "Promedio del monto que el cliente percibe mensualmente por concepto de salario"
+  _observ_start_dt: "Fecha correspondiente al primer día del mes"
+  _observ_end_dt: "Fecha correspondiente al último día del mes"

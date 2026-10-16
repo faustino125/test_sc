@@ -1,0 +1,133 @@
+cli_cliente:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "fecha_informacion"]
+    null_thresholds:
+      id_cliente: 0
+      fecha_informacion: 0
+    severity: CRITICAL
+  dimensional:
+    enabled: true
+    dimensions:
+      flag_cliente_5x1:
+        - 0
+        - 1
+      carterizacion:
+        - banca_privada
+        - cliente_sin_saldo
+        - clientes_sin_saldo
+        - consumo_masivo
+        - desconocido
+        - empresa_grande
+        - empresa_mediana
+        - empresa_pequeña
+        - grupo_corporativo
+        - gubernamental
+        - infantil
+        - institucional
+        - institucional_bajo
+        - institucional_grande
+        - institucional_medio
+        - institucional_pequeña
+        - microempresa
+        - microempresa_individual
+        - personas_renta_alta
+        - personas_renta_baja
+        - personas_renta_media
+        - pymes_bajo
+        - pymes_medio
+        - saldo_acreedor
+        - sin_clasificacion_individual
+        - sobregirados
+        - teen
+        - universitario
+      banca_favorita:
+        - atencion_al_publico
+        - banca_corporativa
+        - banca_personal
+        - bi-premium
+        - contecnica
+        - desconocido
+        - internacional
+        - microfinanzas
+        - no_codificado
+        - pymes
+        - vehiculos
+        - vivienda
+    severity: CRITICAL
+
+cli_cliente_planilla:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente", "fecha_informacion"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "fecha_informacion"]
+    null_thresholds:
+      id_cliente: 0
+      fecha_informacion: 0
+    severity: CRITICAL
+
+cli_leads:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "fecha_informacion"]
+    null_thresholds:
+      id_cliente: 0
+      fecha_informacion: 0
+    severity: CRITICAL
+
+cli_catalogo_direccion_principal:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente", "fecha_catalogo"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "fecha_catalogo"]
+    null_thresholds:
+      id_cliente: 0
+      fecha_catalogo: 0
+    severity: CRITICAL
+
+cli_producto_cliente:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente", "cuenta_corporativa","id_aplicacion"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente","cuenta_corporativa","id_aplicacion", "fecha_informacion"]
+    null_thresholds:
+      id_cliente: 0
+      cuenta_corporativa: 0
+      id_aplicacion: 0
+      fecha_informacion: 0
+    severity: CRITICAL
+  dimensional:
+    severity: CRITICAL
+    enabled: true
+    dimensions:
+      descripcion_aplicacion:
+        - ahorros
+        - bi_banking
+        - bi_en_linea
+        - bonos
+        - club_bi
+        - monetarios
+        - plan_dorado_de_inversion
+        - plan_futuro_programado
+        - plazo_fijo
+        - prepago
+        - prestamos
+        - tarjeta_de_credito
+        - tarjeta_debito

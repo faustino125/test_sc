@@ -1,0 +1,29 @@
+sib_detalle_deuda:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente", "sib_id_persona","sib_fecha_saldos","_observ_end_dt"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "sib_id_persona", "sib_fecha_saldos", "_observ_end_dt"]
+    null_thresholds:
+      id_cliente: 0
+      sib_id_persona: 0
+      _observ_end_dt: 0
+      sib_fecha_saldos: 0
+    severity: CRITICAL
+
+sib_historial_deuda:
+  duplicates:
+    enabled: true
+    primary_key: ["id_cliente", "sib_id_persona","sib_fecha_historial_deuda","sib_tipo_deuda","_observ_end_dt"]
+    severity: HIGH
+  null_values:
+    enabled: true
+    columns: ["id_cliente", "sib_id_persona", "sib_fecha_historial_deuda","sib_tipo_deuda","_observ_end_dt"]
+    null_thresholds:
+      id_cliente: 0
+      sib_id_persona: 0
+      _observ_end_dt: 0
+      sib_fecha_historial_deuda: 0
+    severity: CRITICAL

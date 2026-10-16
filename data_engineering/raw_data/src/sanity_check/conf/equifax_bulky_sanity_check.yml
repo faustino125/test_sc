@@ -1,0 +1,8 @@
+#---------------- vw_coe_eqf_masiva_exp_entrada --------------------------------
+vw_coe_eqf_masiva_exp_entrada:
+  null_values:
+    enabled: true
+    columns: ["codigo_cliente"]
+    null_thresholds:
+      codigo_cliente: 0  # 0% nulls allowed
+    severity: MEDIUM

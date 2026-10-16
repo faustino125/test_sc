@@ -1,0 +1,6 @@
+fields:
+  fecha_transaccion: "fecha de la transacción"
+  id_instalacion: "código de instalación"
+  descripcion_operacion: "Descripción de la operación."
+  _observ_start_dt: "Fecha observación de inicio."
+  _observ_end_dt: "Fecha observación final."
