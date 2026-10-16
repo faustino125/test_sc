@@ -16,6 +16,44 @@ spark = DatabricksSession.builder.getOrCreate()
 spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "true")
 
 
+def _build_merge_delete_condition(p_combos) -> str:
+    """Build the DELETE predicate that clears the results being replaced.
+
+    One `nombre_dataset = ... AND _observ_end_dt IN (...)` term per dataset
+    instead of one OR term per (dataset, month): a 10-year rerun stays a short
+    predicate, and the IN list on the partition column prunes partitions.
+
+    Args:
+        p_combos: Rows/dicts with nombre_dataset and _observ_end_dt
+
+    Returns:
+        SQL predicate, or an empty string when there is nothing to delete.
+    """
+
+    def _quote(p_value) -> str:
+        return "'" + str(p_value).replace("'", "''") + "'"
+
+    months_by_dataset = {}
+    for row in p_combos:
+        months_by_dataset.setdefault(row["nombre_dataset"], set()).add(
+            row["_observ_end_dt"]
+        )
+
+    conditions = []
+    for dataset, months in sorted(months_by_dataset.items()):
+        month_list = ", ".join(_quote(m) for m in sorted(months, key=str) if m)
+        null_month = None in months
+        parts = []
+        if month_list:
+            parts.append(f"_observ_end_dt IN ({month_list})")
+        if null_month:
+            parts.append("_observ_end_dt IS NULL")
+        conditions.append(
+            f"(nombre_dataset = {_quote(dataset)} AND ({' OR '.join(parts)}))"
+        )
+    return " OR ".join(conditions)
+
+
 def _execute_merge_by_dataset(p_output_df, p_table):
     """
     Executes a MERGE operation to delete existing records for the same datasets.
@@ -34,17 +72,9 @@ def _execute_merge_by_dataset(p_output_df, p_table):
         combos = (
             p_output_df.select("nombre_dataset", "_observ_end_dt").distinct().collect()
         )
-
-        if combos:
-            conditions = []
-            for row in combos:
-                conditions.append(
-                    f"(nombre_dataset = '{row['nombre_dataset']}' "
-                    f"AND _observ_end_dt = '{row['_observ_end_dt']}')"
-                )
-
-            delete_sql = f"DELETE FROM {p_table} WHERE {' OR '.join(conditions)}"
-            spark.sql(delete_sql)
+        condition = _build_merge_delete_condition(combos)
+        if condition:
+            spark.sql(f"DELETE FROM {p_table} WHERE {condition}")
 
     return ("append" if table_exists else "overwrite", table_exists)
 
@@ -175,8 +205,13 @@ def save_delta_file_task(
         )
 
     logger.info(f"Data Saved at Path:--{full_path}--")
-    spark.sql(f"VACUUM {db_table} RETAIN 168 HOURS")
-    logger.info(f"VACUUMING process for :--{db_table}-- completed")
+    if os.getenv("output_domain") == "sanity_check":
+        # Sanity check results are written once per block of months; vacuuming
+        # on every write lists the whole table each time. Run it periodically.
+        logger.info(f"VACUUM skipped for sanity check results table {db_table}")
+    else:
+        spark.sql(f"VACUUM {db_table} RETAIN 168 HOURS")
+        logger.info(f"VACUUMING process for :--{db_table}-- completed")
 
 
 @flow(name="save_data_flow")

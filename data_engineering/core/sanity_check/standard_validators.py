@@ -1,110 +1,145 @@
 import logging
-from functools import reduce
+from typing import Any, Dict, List, Mapping, Tuple
 
-from pyspark.sql import DataFrame  # type: ignore
+from pyspark.sql import Column, DataFrame  # type: ignore
 from pyspark.sql import functions as f  # type: ignore
+from pyspark.sql.types import BooleanType  # type: ignore
 
-from data_engineering.core.sanity_check.base import BaseValidator, QualitySeverity
-from data_engineering.core.sanity_check.utils import to_dataframe
+from data_engineering.core.sanity_check.base import (
+    BaseValidator,
+    GroupedMode,
+    QualitySeverity,
+    ValidationRecord,
+    ValidationStatus,
+)
+from data_engineering.core.sanity_check.utils import create_record
 
 logger = logging.getLogger(__name__)
 
 
 class StandardDuplicatesValidator(BaseValidator):
-    """Validates and detects duplicate records based on primary key configuration."""
+    """Validates and detects duplicate records based on primary key configuration.
+
+    Duplicates are evaluated within each month: the engine groups by
+    (month, key), so a key repeated in two different months is not a duplicate.
+    """
 
     DEFAULT_FAIL_SEVERITY = QualitySeverity.HIGH
+    GROUPED_MODE = GroupedMode.KEYED
 
-    def validate(self, p_df: DataFrame, p_dataset_name: str) -> DataFrame:
-        """Validate for duplicate primary keys.
+    def prepare_keys(
+        self, p_df: DataFrame, p_dataset_name: str
+    ) -> Tuple[List[str], List[ValidationRecord]]:
+        """Resolve primary keys from configuration (primary_key, pk, unique_id).
 
-        The validation performs the following operations:
-        1. Resolve primary keys from configuration (primary_key, pk, unique_id)
-        2. Filter null values from key columns
-        3. Count duplicates using groupBy aggregation
-        4. Generate validation records with PASS/FAIL status
-
-        Args:
-            p_df: DataFrame to validate
-            p_dataset_name: Name of dataset being validated
-
-        Returns:
-            DataFrame with validation results
+        Configured key columns missing from the DataFrame are reported as FAIL
+        and disable the check, since duplicates cannot be computed without them.
         """
         primary_keys = self._get_config_value(
             ["primary_key", "pk", "unique_id", "unique_keys"], default=[]
         )
-
         if not primary_keys:
-            return to_dataframe(self.spark, [])
+            return [], []
 
         primary_keys = [primary_keys] if isinstance(primary_keys, str) else primary_keys
+        self._fail_severity = self._get_severity(self.DEFAULT_FAIL_SEVERITY)
+        records: List[ValidationRecord] = []
 
         actual_pks = []
-        missing_keys = []
         for pk in primary_keys:
             actual_col = self._resolve_column(p_df, pk)
             if actual_col:
                 actual_pks.append(actual_col)
             else:
-                missing_keys.append(pk)
+                self._add_missing_column_record(
+                    records, p_dataset_name, pk, "DUPLICATES", self._fail_severity
+                )
 
-        if missing_keys:
-            return to_dataframe(self.spark, [])
+        if records:
+            return [], records
 
-        records = []
-        pk_conditions = [f.col(pk).isNotNull() for pk in actual_pks]
-        pk_filter = reduce(lambda a, b: a & b, pk_conditions, f.lit(True))
-        df_no_nulls = p_df.filter(pk_filter)
-        dup_count = (
-            df_no_nulls.groupBy(*actual_pks).count().filter(f.col("count") > 1).count()
+        self._pk_str = ", ".join(actual_pks)
+        return actual_pks, []
+
+    def build_keyed_records(
+        self, p_row: Mapping[str, Any], p_dataset_name: str
+    ) -> List[ValidationRecord]:
+        """Build the DUPLICATES record of one month from its key statistics."""
+        dup_keys = p_row.get("dup_keys") or 0
+        dup_rows = p_row.get("dup_rows") or 0
+        null_key_rows = p_row.get("null_key_rows") or 0
+
+        null_note = (
+            f" {null_key_rows:,} registros con llave nula no fueron evaluados."
+            if null_key_rows
+            else ""
         )
-        pk_str = ", ".join(actual_pks)
-
-        failed = dup_count > 0
-        fail_desc = (
-            f"Se detectaron {dup_count} registros duplicados "
-            f"para la llave primaria: {pk_str}."
-        )
-        pass_desc = (
-            f"No se encontraron registros duplicados "
-            f"para la llave primaria: {pk_str}."
-        )
-
+        records: List[ValidationRecord] = []
         self._add_validation_record(
             records=records,
             dataset_name=p_dataset_name,
-            check_name=pk_str,
+            check_name=self._pk_str,
             category="DUPLICATES",
-            failed=failed,
-            fail_description=fail_desc,
-            pass_description=pass_desc,
-            fail_severity=self._get_severity(self.DEFAULT_FAIL_SEVERITY),
+            failed=dup_keys > 0,
+            fail_description=(
+                f"Se detectaron {dup_keys:,} valores de llave duplicados "
+                f"({dup_rows:,} registros afectados) para la llave primaria: "
+                f"{self._pk_str}.{null_note}"
+            ),
+            pass_description=(
+                f"No se encontraron registros duplicados "
+                f"para la llave primaria: {self._pk_str}.{null_note}"
+            ),
+            fail_severity=self._fail_severity,
         )
+        return records
 
-        return to_dataframe(self.spark, records)
+    def validate(self, p_df: DataFrame, p_dataset_name: str) -> DataFrame:
+        """Validate duplicate primary keys on the whole DataFrame."""
+        return self._validate_grouped_once(p_df, p_dataset_name)
 
 
 class StandardNullValuesValidator(BaseValidator):
     """Validates null value percentages against configured thresholds."""
 
     DEFAULT_FAIL_SEVERITY = QualitySeverity.MEDIUM
+    GROUPED_MODE = GroupedMode.AGGREGATE
 
-    def validate(self, p_df: DataFrame, p_dataset_name: str) -> DataFrame:
-        """Validate null value percentages with optimized single-pass aggregation.
-
-        The validation performs the following operations:
-        1. Resolve null thresholds from configuration.
-        2. Calculate total row count and null counts per column in single aggregation
-        3. Compare null percentages against configured thresholds
-        4. Generate FAIL records for columns exceeding thresholds
+    @staticmethod
+    def _coerce_threshold(p_column: str, p_value: Any) -> float:
+        """Convert a configured null threshold into a percentage in [0, 100].
 
         Args:
-            p_df: DataFrame to validate
-            p_dataset_name: Name of dataset being validated
+            p_column: Column the threshold applies to (for error messages)
+            p_value: Raw threshold from the YAML configuration
 
         Returns:
-            DataFrame with validation results per column
+            Threshold as a float percentage.
+
+        Raises:
+            ValueError: If the threshold is not numeric or is out of range.
+        """
+        try:
+            threshold = float(p_value)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"Invalid null threshold for column '{p_column}': {p_value!r} "
+                f"(expected a number between 0 and 100)."
+            ) from None
+        if not 0 <= threshold <= 100:
+            raise ValueError(
+                f"Invalid null threshold for column '{p_column}': {p_value!r} "
+                f"(expected a number between 0 and 100)."
+            )
+        return threshold
+
+    def prepare_aggregations(
+        self, p_df: DataFrame, p_dataset_name: str, p_alias_prefix: str
+    ) -> Tuple[List[Column], List[ValidationRecord]]:
+        """Build one null count per configured column plus a row count.
+
+        Thresholds are type-checked here; configured columns missing from the
+        DataFrame are reported as FAIL.
         """
         null_thresholds = self._get_config_value(
             ["null_thresholds", "null_limits", "null_percentages"], default={}
@@ -124,56 +159,54 @@ class StandardNullValuesValidator(BaseValidator):
                 f"{type(null_thresholds).__name__}."
             )
 
-        if not merged_thresholds:
-            return to_dataframe(self.spark, [])
+        self._fail_severity = self._get_severity(self.DEFAULT_FAIL_SEVERITY)
+        self._rows_alias = f"{p_alias_prefix}rows"
+        self._checks: List[Tuple[str, str, float]] = []
+        records: List[ValidationRecord] = []
 
-        agg_exprs = []
-        column_map = {}
-
-        for col_name in merged_thresholds.keys():
+        # Keyed by the resolved column so case variants of the same configured
+        # column are evaluated once (the last configured threshold wins).
+        thresholds_by_col: Dict[str, float] = {}
+        for col_name, raw_threshold in merged_thresholds.items():
+            threshold = self._coerce_threshold(col_name, raw_threshold)
             actual_col = self._resolve_column(p_df, col_name)
-
             if not actual_col:
+                self._add_missing_column_record(
+                    records,
+                    p_dataset_name,
+                    col_name,
+                    "NULL_VALUES",
+                    self._fail_severity,
+                )
                 continue
+            thresholds_by_col[actual_col] = threshold
 
-            null_count_alias = f"null_count_{actual_col}"
-            agg_exprs.append(
-                f.count(f.when(f.col(actual_col).isNull(), 1)).alias(null_count_alias)
-            )
-            column_map[null_count_alias] = {
-                "column": actual_col,
-                "threshold": merged_thresholds[col_name],
-            }
+        if not thresholds_by_col:
+            return [], records
 
-        if not agg_exprs:
-            return to_dataframe(self.spark, [])
+        exprs = [f.count(f.lit(1)).alias(self._rows_alias)]
+        for idx, (actual_col, threshold) in enumerate(thresholds_by_col.items()):
+            alias = f"{p_alias_prefix}null_{idx}"
+            exprs.append(f.count(f.when(f.col(actual_col).isNull(), 1)).alias(alias))
+            self._checks.append((alias, actual_col, threshold))
 
-        agg_exprs.append(f.count(f.lit(1)).alias("__total_rows"))
-        agg_result = p_df.agg(*agg_exprs).collect()[0]
-        total_rows = agg_result["__total_rows"] or 1
-        records = []
+        return exprs, records
 
-        for null_count_alias, col_info in column_map.items():
-            actual_col = col_info["column"]
-            max_null_percent = col_info["threshold"]
+    def build_records(
+        self, p_row: Mapping[str, Any], p_dataset_name: str
+    ) -> List[ValidationRecord]:
+        """Compare null percentages against thresholds for one month."""
+        total_rows = p_row.get(self._rows_alias) or 0
+        records: List[ValidationRecord] = []
 
-            null_count = agg_result[null_count_alias] or 0
-            null_pct = (null_count / total_rows) * 100
+        for alias, actual_col, max_null_percent in self._checks:
+            null_count = p_row.get(alias) or 0
+            null_pct = (null_count / total_rows) * 100 if total_rows else 0.0
 
             is_fail = (
                 (null_count > 0)
                 if max_null_percent == 0
                 else (null_pct > max_null_percent)
-            )
-
-            fail_desc = (
-                f"La columna '{actual_col}' tiene {null_pct:.2f}% valores "
-                f"nulos ({null_count:,} registros), excediendo el umbral de "
-                f"{max_null_percent}%."
-            )
-            pass_desc = (
-                f"La columna '{actual_col}' tiene {null_pct:.2f}% valores "
-                f"nulos, dentro del límite establecido de {max_null_percent}%."
             )
 
             self._add_validation_record(
@@ -182,50 +215,54 @@ class StandardNullValuesValidator(BaseValidator):
                 check_name=actual_col,
                 category="NULL_VALUES",
                 failed=is_fail,
-                fail_description=fail_desc,
-                pass_description=pass_desc,
-                fail_severity=self._get_severity(self.DEFAULT_FAIL_SEVERITY),
+                fail_description=(
+                    f"La columna '{actual_col}' tiene {null_pct:.2f}% valores "
+                    f"nulos ({null_count:,} registros), excediendo el umbral de "
+                    f"{max_null_percent:g}%."
+                ),
+                pass_description=(
+                    f"La columna '{actual_col}' tiene {null_pct:.2f}% valores "
+                    f"nulos, dentro del límite establecido de {max_null_percent:g}%."
+                ),
+                fail_severity=self._fail_severity,
             )
+        return records
 
-        logger.info(
-            f"NULL_VALUES: Checked {len(records)} columns in {p_dataset_name} "
-            f"with single-pass aggregation"
-        )
-
-        return to_dataframe(self.spark, records)
+    def validate(self, p_df: DataFrame, p_dataset_name: str) -> DataFrame:
+        """Validate null value percentages with a single-pass aggregation."""
+        return self._validate_grouped_once(p_df, p_dataset_name)
 
 
 class StandardDimensionalValidator(BaseValidator):
     """Validates dimensional attributes against allowed values"""
 
     DEFAULT_FAIL_SEVERITY = QualitySeverity.MEDIUM
+    GROUPED_MODE = GroupedMode.AGGREGATE
 
-    def validate(self, p_df: DataFrame, p_dataset_name: str) -> DataFrame:
-        """Validate dimensional attributes against allowed values/catalog.
+    def prepare_aggregations(
+        self, p_df: DataFrame, p_dataset_name: str, p_alias_prefix: str
+    ) -> Tuple[List[Column], List[ValidationRecord]]:
+        """Build one invalid-value count per dimension and value check.
 
-        The validation performs the following operations:
-        1. Load dimensional constraints and whitelist configurations
-        2. Build aggregation expressions for all dimensions in single scan
-        3. Count invalid (null or out-of-domain) values per dimension
-        4. Generate FAIL records for dimensions with invalid values
-
-        Args:
-            p_df: DataFrame to validate
-            p_dataset_name: Name of dataset being validated
-
-        Returns:
-            DataFrame with validation results per dimension
+        Configured columns missing from the DataFrame are reported as FAIL.
         """
         dimensions = self._get_config_value(
             ["dimensions", "allowed_values", "domain_constraints"], default={}
         )
+        if not isinstance(dimensions, dict):
+            raise ValueError(
+                f"Invalid dimensional config for '{p_dataset_name}': expected a "
+                f"mapping of column→allowed values, got {type(dimensions).__name__}."
+            )
 
-        value_checks = self.config.get("value_checks", [])
-
-        if not dimensions and not value_checks:
-            return to_dataframe(self.spark, [])
-
+        value_checks = self.config.get("value_checks", []) or []
         validator_allow_null = bool(self.config.get("allow_null", False))
+        self._fail_severity = self._get_severity(self.DEFAULT_FAIL_SEVERITY)
+        self._checks: List[Tuple[str, str]] = []
+
+        records: List[ValidationRecord] = []
+        exprs: List[Column] = []
+        dimension_cols = set()
 
         def _invalid_condition(p_col: str, p_allowed: list, p_allow_null: bool):
             """Build the out-of-domain condition, optionally treating NULL as valid."""
@@ -234,120 +271,115 @@ class StandardDimensionalValidator(BaseValidator):
                 return f.col(p_col).isNotNull() & out_of_domain
             return f.col(p_col).isNull() | out_of_domain
 
-        records = []
-        agg_exprs = []
-        check_map = {}
+        def _add_check(p_col_name: str, p_allowed: Any, p_allow_null: bool) -> None:
+            actual_col = self._resolve_column(p_df, p_col_name)
+            if not actual_col:
+                self._add_missing_column_record(
+                    records,
+                    p_dataset_name,
+                    p_col_name,
+                    "DIMENSIONAL",
+                    self._fail_severity,
+                )
+                return
+            if not p_allowed:
+                logger.warning(
+                    f"No allowed values configured for column '{p_col_name}' "
+                    f"in {p_dataset_name}"
+                )
+                return
+            if actual_col.lower() in dimension_cols:
+                return
+            dimension_cols.add(actual_col.lower())
+
+            alias = f"{p_alias_prefix}invalid_{len(exprs)}"
+            invalid_cond = _invalid_condition(actual_col, list(p_allowed), p_allow_null)
+            exprs.append(f.count(f.when(invalid_cond, 1)).alias(alias))
+            self._checks.append((alias, actual_col))
 
         for col_name, allowed_vals in dimensions.items():
-            actual_col = self._resolve_column(p_df, col_name)
+            _add_check(col_name, allowed_vals, validator_allow_null)
 
-            if not actual_col:
-                logger.warning(
-                    f"Dimension column '{col_name}' not found in "
-                    f"dataset {p_dataset_name}"
-                )
+        for check in value_checks:
+            if not isinstance(check, dict) or not check.get("column"):
                 continue
-
-            if not allowed_vals:
-                logger.warning(
-                    f"No allowed values configured for column '{col_name}' "
-                    f"in {p_dataset_name}"
-                )
-                continue
-
-            alias = f"inv_{actual_col}"
-            invalid_cond = _invalid_condition(
-                actual_col, allowed_vals, validator_allow_null
-            )
-            agg_exprs.append(f.count(f.when(invalid_cond, 1)).alias(alias))
-            check_map[alias] = {"column": actual_col, "type": "dimensional"}
-
-        for i, check in enumerate(value_checks):
-            col_name = check.get("column")
-            valid_list = check.get("whitelist", [])
-
-            if not col_name:
-                continue
-
-            actual_col = self._resolve_column(p_df, col_name)
-
-            if not actual_col:
-                continue
-
-            if not valid_list:
-                logger.warning(
-                    f"No whitelist values configured for column '{col_name}' "
-                    f"in {p_dataset_name}"
-                )
-                continue
-
-            if actual_col.lower() in [k.lower() for k in dimensions.keys()]:
-                continue
-
-            check_allow_null = bool(check.get("allow_null", validator_allow_null))
-            alias = f"vc_{i}_{actual_col}"
-            invalid_cond = _invalid_condition(actual_col, valid_list, check_allow_null)
-            agg_exprs.append(f.count(f.when(invalid_cond, 1)).alias(alias))
-            check_map[alias] = {"column": actual_col, "type": "dimensional"}
-
-        if not agg_exprs:
-            return to_dataframe(self.spark, [])
-
-        results = p_df.agg(*agg_exprs).collect()[0].asDict()
-
-        for alias, count in results.items():
-            info = check_map[alias]
-            col_name = info["column"]
-
-            failed = count > 0
-            fail_desc = (
-                f"La columna '{col_name}' tiene {count} registros con valores "
-                f"fuera de la restricción dimensional configurada."
-            )
-            pass_desc = (
-                f"La columna '{col_name}' tiene todos los valores "
-                f"dentro de la restricción dimensional configurada."
+            _add_check(
+                check["column"],
+                check.get("whitelist", []),
+                bool(check.get("allow_null", validator_allow_null)),
             )
 
+        return exprs, records
+
+    def build_records(
+        self, p_row: Mapping[str, Any], p_dataset_name: str
+    ) -> List[ValidationRecord]:
+        """Build one PASS/FAIL record per dimension for one month."""
+        records: List[ValidationRecord] = []
+        for alias, col_name in self._checks:
+            count = p_row.get(alias) or 0
             self._add_validation_record(
                 records=records,
                 dataset_name=p_dataset_name,
                 check_name=col_name,
                 category="DIMENSIONAL",
-                failed=failed,
-                fail_description=fail_desc,
-                pass_description=pass_desc,
-                fail_severity=self._get_severity(self.DEFAULT_FAIL_SEVERITY),
+                failed=count > 0,
+                fail_description=(
+                    f"La columna '{col_name}' tiene {count:,} registros con valores "
+                    f"fuera de la restricción dimensional configurada."
+                ),
+                pass_description=(
+                    f"La columna '{col_name}' tiene todos los valores "
+                    f"dentro de la restricción dimensional configurada."
+                ),
+                fail_severity=self._fail_severity,
             )
+        return records
 
-        return to_dataframe(self.spark, records)
+    def validate(self, p_df: DataFrame, p_dataset_name: str) -> DataFrame:
+        """Validate dimensional attributes against allowed values/catalog."""
+        return self._validate_grouped_once(p_df, p_dataset_name)
 
 
 class StandardConsistencyValidator(BaseValidator):
     """Validates dataset consistency based on SQL-like rules and constraints."""
 
-    def validate(self, p_df: DataFrame, p_dataset_name: str) -> DataFrame:
-        """Validate dataset consistency based on SQL-like rules.
+    GROUPED_MODE = GroupedMode.AGGREGATE
 
-        The validation performs the following operations:
-        1. Load consistency rules from configuration (rules array)
-        2. Build aggregation expressions for all rules (single-pass optimization)
-        3. Execute batch aggregation and evaluate each rule
-        4. Generate FAIL/PASS records with rule-specific severity levels
+    def _invalid_rule_record(
+        self,
+        p_dataset_name: str,
+        p_rule_name: str,
+        p_severity: QualitySeverity,
+        p_reason: str,
+    ) -> ValidationRecord:
+        """Build the FAIL record for a rule that cannot be evaluated."""
+        return create_record(
+            p_dataset_name=p_dataset_name,
+            p_check_name=p_rule_name,
+            p_category="CONSISTENCY",
+            p_severity=p_severity,
+            p_description=(
+                f"La regla de consistencia '{p_rule_name}' no pudo evaluarse: "
+                f"{p_reason[:500]}"
+            ),
+            p_status=ValidationStatus.FAIL,
+        )
 
-        Args:
-            p_df: DataFrame to validate
-            p_dataset_name: Name of dataset being validated
+    def prepare_aggregations(
+        self, p_df: DataFrame, p_dataset_name: str, p_alias_prefix: str
+    ) -> Tuple[List[Column], List[ValidationRecord]]:
+        """Analyze each rule on its own and build one violation count per rule.
 
-        Returns:
-            DataFrame with validation results per rule
+        An invalid rule (bad severity, SQL error, unknown column, non-boolean
+        result) becomes a FAIL record for that rule only.
         """
-        rules = self.config.get("rules", [])
-        if not rules:
-            return to_dataframe(self.spark, [])
-
-        agg_exprs = []
-        rule_metadata = []
+        rules = self.config.get("rules", []) or []
+        default_severity = self._get_severity(QualitySeverity.MEDIUM)
+        self._rows_alias = f"{p_alias_prefix}rows"
+        self._rules: List[Dict[str, Any]] = []
+        records: List[ValidationRecord] = []
+        exprs: List[Column] = []
 
         for idx, rule in enumerate(rules):
             rule_name = rule.get("name", f"rule_{idx}")
@@ -359,62 +391,93 @@ class StandardConsistencyValidator(BaseValidator):
                 )
                 continue
 
-            severity = self.coerce_severity(
-                rule.get("severity"), self._get_severity(QualitySeverity.MEDIUM)
-            )
-
-            treat_null_as_fail = bool(rule.get("treat_null_as_fail", False))
-
-            alias = f"invalid_count_{idx}"
             try:
-                violated = ~f.expr(condition)
-                if treat_null_as_fail:
-                    violated = f.coalesce(violated, f.lit(True))
-                agg_exprs.append(f.count(f.when(violated, 1)).alias(alias))
-                rule_metadata.append(
-                    {
-                        "idx": idx,
-                        "alias": alias,
-                        "name": rule_name,
-                        "condition": condition,
-                        "severity": severity,
-                    }
+                severity = self.coerce_severity(rule.get("severity"), default_severity)
+            except ValueError as e:
+                records.append(
+                    self._invalid_rule_record(
+                        p_dataset_name, rule_name, default_severity, str(e)
+                    )
                 )
-            except Exception as e:
-                logger.error(f"Invalid rule condition '{rule_name}': {e}")
                 continue
 
-        if not agg_exprs:
-            logger.warning(f"No valid consistency rules for {p_dataset_name}")
-            return to_dataframe(self.spark, [])
+            # Spark Connect builds expressions lazily, so force analysis per rule:
+            # a parse error or unknown column must fail this rule, not all of them.
+            try:
+                rule_expr = f.expr(condition)
+                data_type = p_df.select(rule_expr.alias("__rule")).schema[0].dataType
+            except Exception as e:
+                logger.error(f"Invalid rule condition '{rule_name}': {e}")
+                records.append(
+                    self._invalid_rule_record(
+                        p_dataset_name, rule_name, severity, f"{condition} → {e}"
+                    )
+                )
+                continue
 
-        agg_exprs.append(f.count(f.lit(1)).alias("__total_rows"))
-        agg_result = p_df.agg(*agg_exprs).collect()[0]
-        total_rows = agg_result["__total_rows"] or 1
+            if not isinstance(data_type, BooleanType):
+                records.append(
+                    self._invalid_rule_record(
+                        p_dataset_name,
+                        rule_name,
+                        severity,
+                        f"{condition} devuelve {data_type.simpleString()}, "
+                        f"se esperaba boolean.",
+                    )
+                )
+                continue
 
-        records = []
-        for meta in rule_metadata:
-            invalid_count = agg_result[meta["alias"]]
-            failed = invalid_count > 0
+            violated = ~rule_expr
+            if bool(rule.get("treat_null_as_fail", False)):
+                violated = f.coalesce(violated, f.lit(True))
 
-            fail_desc = (
-                f"La regla de consistencia '{meta['name']}' falló para "
-                f"{invalid_count} de {total_rows} registros ({meta['condition']})."
+            alias = f"{p_alias_prefix}invalid_{idx}"
+            exprs.append(f.count(f.when(violated, 1)).alias(alias))
+            self._rules.append(
+                {
+                    "alias": alias,
+                    "name": rule_name,
+                    "condition": condition,
+                    "severity": severity,
+                }
             )
-            pass_desc = (
-                f"La regla de consistencia '{meta['name']}' pasó para "
-                f"todos los registros ({meta['condition']})."
-            )
 
+        if not exprs:
+            if not records and rules:
+                logger.warning(f"No valid consistency rules for {p_dataset_name}")
+            return [], records
+
+        exprs.append(f.count(f.lit(1)).alias(self._rows_alias))
+        return exprs, records
+
+    def build_records(
+        self, p_row: Mapping[str, Any], p_dataset_name: str
+    ) -> List[ValidationRecord]:
+        """Build one PASS/FAIL record per valid rule for one month."""
+        total_rows = p_row.get(self._rows_alias) or 0
+        records: List[ValidationRecord] = []
+
+        for meta in self._rules:
+            invalid_count = p_row.get(meta["alias"]) or 0
             self._add_validation_record(
                 records=records,
                 dataset_name=p_dataset_name,
                 check_name=meta["name"],
                 category="CONSISTENCY",
-                failed=failed,
-                fail_description=fail_desc,
-                pass_description=pass_desc,
+                failed=invalid_count > 0,
+                fail_description=(
+                    f"La regla de consistencia '{meta['name']}' falló para "
+                    f"{invalid_count:,} de {total_rows:,} registros "
+                    f"({meta['condition']})."
+                ),
+                pass_description=(
+                    f"La regla de consistencia '{meta['name']}' pasó para "
+                    f"todos los registros ({meta['condition']})."
+                ),
                 fail_severity=meta["severity"],
             )
+        return records
 
-        return to_dataframe(self.spark, records)
+    def validate(self, p_df: DataFrame, p_dataset_name: str) -> DataFrame:
+        """Validate dataset consistency based on SQL-like rules."""
+        return self._validate_grouped_once(p_df, p_dataset_name)

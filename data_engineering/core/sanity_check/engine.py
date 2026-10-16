@@ -1,38 +1,25 @@
+import importlib
 import logging
 import os
 import re
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from functools import reduce
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 
 from databricks.connect import DatabricksSession  # type: ignore
 from pyspark.sql import DataFrame  # type: ignore
 from pyspark.sql import functions as f  # type: ignore
-from pyspark.storagelevel import StorageLevel  # type: ignore
 
-from data_engineering.core.sanity_check.base import (
-    BaseValidator,
-    QualitySeverity,
-    ValidationRecord,
-    ValidationStatus,
-)
+from data_engineering.core.sanity_check.base import BaseValidator
 from data_engineering.core.sanity_check.standard_validators import (
     StandardConsistencyValidator,
     StandardDimensionalValidator,
     StandardDuplicatesValidator,
     StandardNullValuesValidator,
 )
-from data_engineering.core.sanity_check.utils import (
-    _TIMEZONE_UTC_6,
-    VALIDATION_RESULT_SCHEMA,
-    EnvironmentConfig,
-    create_record,
-    to_dataframe,
-)
+from data_engineering.core.sanity_check.utils import _TIMEZONE_UTC_6, EnvironmentConfig
 from data_engineering.core.utils import load_yaml_file, send_message_teams
 
 logger = logging.getLogger(__name__)
@@ -69,8 +56,47 @@ _SQL_TOKEN_SKIPLIST = frozenset(
         "interval",
         "current_date",
         "current_timestamp",
+        "date",
+        "timestamp",
+        "ilike",
+        "regexp",
+        "div",
     }
 )
+
+
+_SQL_STRING_LITERAL = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"")
+# Backticked names, or bare identifiers that are not part of a number and
+# not followed by "(" (function calls).
+_SQL_IDENTIFIER = re.compile(
+    r"`([^`]+)`|(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_.]*)\b(?!\s*\()"
+)
+
+
+def _rule_identifiers(p_condition: str) -> List[str]:
+    """Lower-cased identifiers a SQL condition references (columns, maybe).
+
+    String literals, function calls and SQL keywords are ignored.
+    """
+    tokens = []
+    without_literals = _SQL_STRING_LITERAL.sub(" ", p_condition)
+    for quoted, plain in _SQL_IDENTIFIER.findall(without_literals):
+        token = (quoted or plain).strip().rstrip(".").lower()
+        if token and token not in _SQL_TOKEN_SKIPLIST:
+            tokens.append(token)
+    return tokens
+
+
+def _list(p_value: Any) -> list:
+    """The value if it is a list, else an empty list."""
+    return p_value if isinstance(p_value, list) else []
+
+
+def _str_list(p_value: Any) -> List[str]:
+    """A column name or list of names as a list of strings (others dropped)."""
+    if isinstance(p_value, str):
+        return [p_value]
+    return [v for v in _list(p_value) if isinstance(v, str)]
 
 
 def get_spark() -> DatabricksSession:
@@ -90,91 +116,103 @@ def get_spark() -> DatabricksSession:
         return _SPARK_SESSION
 
 
-def df_is_empty(p_df: DataFrame) -> bool:
-    """Efficient check whether a DataFrame is empty without forcing shuffle.
+def reset_spark() -> None:
+    """Drop the cached session so the next get_spark() opens a new one.
 
-    Args:
-        p_df: Spark DataFrame to check
-
-    Returns:
-        True if DataFrame has no rows, False otherwise
+    The old session is stopped so getOrCreate() does not hand back the same
+    broken default session.
     """
-    try:
-        return len(p_df.limit(1).collect()) == 0
-    except Exception as e:
-        logger.warning(
-            f"limit(1).collect() failed ({type(e).__name__}), "
-            f"falling back to count(): {e}"
-        )
-        return p_df.count() == 0
+    global _SPARK_SESSION
+
+    with _SPARK_SESSION_LOCK:
+        old_session = _SPARK_SESSION
+        _SPARK_SESSION = None
+
+    if old_session is not None:
+        try:
+            old_session.stop()
+        except Exception as e:
+            logger.debug(f"Error stopping stale Spark session: {e}")
 
 
 _GLOBAL_REGISTRY: Optional["ValidatorRegistry"] = None
 _REGISTRY_LOCK: threading.Lock = threading.Lock()
 
+STANDARD_VALIDATORS: Dict[str, Type[BaseValidator]] = {
+    "duplicates": StandardDuplicatesValidator,
+    "null_values": StandardNullValuesValidator,
+    "dimensional": StandardDimensionalValidator,
+    "consistency": StandardConsistencyValidator,
+}
+
+# Optional registry class each layer may define in
+# data_engineering.<layer>.src.sanity_check.validators
+_LAYER_REGISTRY_CLASSES = {
+    "raw_data": "RawValidatorRegistry",
+    "data_cleaning": "CleaningValidatorRegistry",
+    "data_transformation": "TransformationValidatorRegistry",
+    "data_integration": "IntegrationDataValidatorRegistry",
+}
+
 
 def _initialize_layer_validators(p_registry: "ValidatorRegistry") -> None:
-    """Initialize all layer-specific validators in the central registry.
+    """Register the standard validators for every layer, then each layer's own.
+
+    A layer's registry can add new types or override a standard one without
+    making the other standard types disappear.
 
     Args:
         p_registry: Central validator registry to populate
     """
-    standard_validators_map = {
-        "duplicates": StandardDuplicatesValidator,
-        "null_values": StandardNullValuesValidator,
-        "dimensional": StandardDimensionalValidator,
-        "consistency": StandardConsistencyValidator,
-    }
+    for layer_name, registry_class_name in _LAYER_REGISTRY_CLASSES.items():
+        for validator_type, validator_class in STANDARD_VALIDATORS.items():
+            p_registry.register_validator(
+                validator_type, validator_class, p_layer=layer_name
+            )
 
-    layers_config = [
-        ("raw_data", "RawValidatorRegistry"),
-        ("data_cleaning", "CleaningValidatorRegistry"),
-        ("data_transformation", "TransformationValidatorRegistry"),
-        ("data_integration", "IntegrationDataValidatorRegistry"),
-    ]
-
-    for layer_name, registry_class_name in layers_config:
-        layer_specific_found = False
-
+        module_path = f"data_engineering.{layer_name}.src.sanity_check.validators"
         try:
-            module_path = f"data_engineering.{layer_name}.src.sanity_check.validators"
-            module = __import__(module_path, fromlist=[registry_class_name])
-            registry_class = getattr(module, registry_class_name, None)
-
-            if registry_class and hasattr(registry_class, "VALIDATORS"):
-                for (
-                    validator_type,
-                    validator_class,
-                ) in registry_class.VALIDATORS.items():
-                    p_registry.register_validator(
-                        validator_type, validator_class, p_layer=layer_name
-                    )
-                layer_specific_found = True
-                logger.info(f"Registered layer-specific validators for {layer_name}")
-        except (ModuleNotFoundError, ImportError, AttributeError):
-            logger.debug(f"No layer-specific validators module found for {layer_name}")
-        except Exception as e:
-            logger.debug(f"Error loading layer validators for {layer_name}: {e}")
-
-        if not layer_specific_found:
-            for validator_type, validator_class in standard_validators_map.items():
-                p_registry.register_validator(
-                    validator_type, validator_class, p_layer=layer_name
+            module = importlib.import_module(module_path)
+        except ModuleNotFoundError as e:
+            if e.name and module_path.startswith(e.name):
+                logger.debug(f"No layer-specific validators module for {layer_name}")
+            else:
+                logger.error(
+                    f"Layer validators module {module_path} failed to import: {e}"
                 )
-            logger.info(f"Registered standard validators for layer {layer_name}")
+            continue
+        except Exception as e:
+            logger.error(f"Layer validators module {module_path} failed to load: {e}")
+            continue
+
+        registry_class = getattr(module, registry_class_name, None)
+        validators_map = getattr(registry_class, "VALIDATORS", None)
+        if not isinstance(validators_map, dict):
+            logger.warning(
+                f"{module_path} has no {registry_class_name}.VALIDATORS mapping"
+            )
+            continue
+
+        for validator_type, validator_class in validators_map.items():
+            p_registry.register_validator(
+                validator_type, validator_class, p_layer=layer_name
+            )
+        logger.info(
+            f"Registered layer-specific validators for {layer_name}: "
+            f"{sorted(validators_map)}"
+        )
 
     logger.info("Validator initialization complete.")
 
 
 class ValidatorRegistry:
-    """Central registry for validators with layer-specific support."""
+    """Validator classes by layer; the `None` layer holds common fallbacks.
+
+    It is filled once by get_registry() and only read afterwards.
+    """
 
     def __init__(self):
-        """Initialize registry with layer-specific validator overrides."""
-        self._layer_validators: Dict[str, Dict[str, Type[BaseValidator]]] = {}
-        self._common_validators: Dict[str, Type[BaseValidator]] = {}
-        self._lock = threading.RLock()
-        self.spark = get_spark()
+        self._validators: Dict[Optional[str], Dict[str, Type[BaseValidator]]] = {}
 
     def register_validator(
         self,
@@ -182,41 +220,16 @@ class ValidatorRegistry:
         p_validator_class: Type[BaseValidator],
         p_layer: Optional[str] = None,
     ) -> None:
-        """Register or override a validator (thread-safe).
-
-        Args:
-            p_validator_type: Type of validator (duplicates, null_values, etc.)
-            p_validator_class: Validator class to register
-            p_layer: Optional layer name for layer-specific registration
-        """
-        with self._lock:
-            validators_dict = (
-                self._layer_validators.setdefault(p_layer, {})
-                if p_layer
-                else self._common_validators
-            )
-            validators_dict[p_validator_type] = p_validator_class
+        """Register or override a validator for a layer (or for all, if None)."""
+        self._validators.setdefault(p_layer, {})[p_validator_type] = p_validator_class
 
     def get_validator_class(
         self, p_validator_type: str, p_layer: Optional[str] = None
     ) -> Optional[Type[BaseValidator]]:
-        """Get validator class by type and optional layer (thread-safe).
-
-        Args:
-            p_validator_type: Type of validator to retrieve
-            p_layer: Optional layer name for layer-specific lookup
-
-        Returns:
-            Validator class if found, None otherwise
-        """
-        with self._lock:
-            if (
-                p_layer
-                and p_layer in self._layer_validators
-                and p_validator_type in self._layer_validators[p_layer]
-            ):
-                return self._layer_validators[p_layer][p_validator_type]
-            return self._common_validators.get(p_validator_type)
+        """Layer-specific validator class, else the common one, else None."""
+        return self._validators.get(p_layer, {}).get(
+            p_validator_type
+        ) or self._validators.get(None, {}).get(p_validator_type)
 
     def get_validators(
         self,
@@ -235,264 +248,30 @@ class ValidatorRegistry:
             List of instantiated BaseValidator objects
         """
         validators = []
+        spark = get_spark()
         for validator_type in p_validator_types:
             validator_class = self.get_validator_class(validator_type, p_layer)
             if not validator_class:
+                logger.warning(
+                    f"Validator type '{validator_type}' is enabled but not "
+                    f"registered for layer {p_layer}"
+                )
                 continue
             validator_config = p_config.get(validator_type, {})
-            validators.append(validator_class(validator_config, self.spark))
+            validators.append(validator_class(validator_config, spark))
         return validators
 
 
-class QualityEngine:
-    """Main engine for executing quality validations."""
+def get_registry() -> ValidatorRegistry:
+    """Process-wide validator registry, initialized on first use."""
+    global _GLOBAL_REGISTRY
 
-    def __init__(self):
-        """Initialize QualityEngine with validator registry."""
-        global _GLOBAL_REGISTRY
-
-        with _REGISTRY_LOCK:
-            if _GLOBAL_REGISTRY is None:
-                _GLOBAL_REGISTRY = ValidatorRegistry()
-                _initialize_layer_validators(_GLOBAL_REGISTRY)
-
-        self.registry = _GLOBAL_REGISTRY
-        self.spark = get_spark()
-
-    @staticmethod
-    def _as_bool(p_value: Any, p_default: bool = True) -> bool:
-        """Normalize boolean-like values from config/env vars.
-
-        Args:
-            p_value: Value to convert to boolean
-            p_default: Default boolean to return if conversion fails
-
-        Returns:
-            Boolean interpretation of value or default
-        """
-        if p_value is None:
-            return p_default
-        if isinstance(p_value, bool):
-            return p_value
-        if isinstance(p_value, (int, float)):
-            return p_value != 0
-        if isinstance(p_value, str):
-            normalized = p_value.strip().lower()
-            if normalized in {"1", "true", "yes", "y", "on"}:
-                return True
-            if normalized in {"0", "false", "no", "n", "off"}:
-                return False
-        return p_default
-
-    @staticmethod
-    def _run_validator_safely(
-        validator: BaseValidator,
-        p_df: DataFrame,
-        p_dataset_name: str,
-    ) -> Tuple[Optional[DataFrame], Optional[ValidationRecord]]:
-        """Execute a single validator in a thread-safe manner.
-
-        Args:
-            validator: Validator instance to execute
-            p_df: DataFrame to validate
-            p_dataset_name: Dataset name for logging
-
-        Returns:
-            Tuple of (result_df, error_record) - one will be None
-        """
-        try:
-            result_df = validator.validate(p_df, p_dataset_name)
-            return result_df, None
-        except Exception as e:
-            validator_name = validator.__class__.__name__
-            logger.error(f"Validator {validator_name} failed for {p_dataset_name}: {e}")
-
-            error_record = create_record(
-                p_dataset_name=p_dataset_name,
-                p_check_name=validator_name,
-                p_category="VALIDATOR_ERROR",
-                p_severity=QualitySeverity.HIGH,
-                p_description=f"Validator execution error: {str(e)[:500]}",
-                p_status=ValidationStatus.FAIL,
-            )
-            return None, error_record
-
-    def validate(
-        self,
-        p_df: DataFrame,
-        p_dataset_name: str,
-        p_config: Dict[str, Any],
-        p_layer: str = "raw_data",
-    ) -> Tuple[DataFrame, Dict[str, Any]]:
-        """Execute validations on a DataFrame.
-
-        Args:
-            p_df: DataFrame to validate
-            p_dataset_name: Name of dataset being validated
-            p_config: Validation configuration dictionary
-            p_layer: Data layer name (default: 'raw_data')
-
-        Returns:
-            Tuple of (results_df, summary_dict) with validation outcomes
-        """
-        logger.info(f"Starting validation for {p_dataset_name} in layer {p_layer}")
-
-        if not p_config.get("enabled", True):
-            logger.info(f"Validation disabled for '{p_dataset_name}' in config")
-            return to_dataframe(self.spark, []), {"decision": "PASS"}
-
-        if df_is_empty(p_df):
-            fail_on_empty = self._as_bool(
-                p_config.get("fail_on_empty", False), p_default=False
-            )
-            status = ValidationStatus.FAIL if fail_on_empty else ValidationStatus.WARN
-            severity = (
-                QualitySeverity.CRITICAL if fail_on_empty else QualitySeverity.LOW
-            )
-            empty_record = create_record(
-                p_dataset_name=p_dataset_name,
-                p_check_name="__dataset__",
-                p_category="EMPTY_DATASET",
-                p_severity=severity,
-                p_description=(
-                    f"El dataset '{p_dataset_name}' está vacío para el rango "
-                    f"solicitado."
-                ),
-                p_status=status,
-            )
-            decision = "STOP" if fail_on_empty else "PASS"
-            logger.info(
-                f"Dataset '{p_dataset_name}' is empty. "
-                f"fail_on_empty={fail_on_empty}, decision={decision}"
-            )
-            return (
-                to_dataframe(self.spark, [empty_record]),
-                {
-                    "dataset_name": p_dataset_name,
-                    "total_checks": 0,
-                    "failures": 1 if fail_on_empty else 0,
-                    "critical_failures": 1 if fail_on_empty else 0,
-                    "validator_errors": 0,
-                    "decision": decision,
-                },
-            )
-
-        block_on_validator_error = self._as_bool(
-            p_config.get(
-                "block_on_validator_error",
-                os.getenv("sanity_check_block_on_validator_error", "1"),
-            ),
-            p_default=True,
-        )
-
-        validator_types = [
-            key
-            for key, value in p_config.items()
-            if isinstance(value, dict) and value.get("enabled")
-        ]
-        if not validator_types:
-            return to_dataframe(self.spark, []), {"decision": "PASS"}
-
-        validators = self.registry.get_validators(validator_types, p_config, p_layer)
-
-        if not validators:
-            logger.warning(
-                f"No validators found for types {validator_types} in layer {p_layer}"
-            )
-            return to_dataframe(self.spark, []), {"decision": "PASS"}
-
-        results_dfs = []
-        error_records = []
-
-        max_workers = min(4, len(validators))
-
-        persisted_here = False
-        if len(validators) > 1:
-            try:
-                storage = p_df.storageLevel
-                already_persisted = storage.useMemory or storage.useDisk
-            except Exception:
-                already_persisted = False
-            if not already_persisted:
-                p_df = p_df.persist(StorageLevel.MEMORY_AND_DISK)
-                persisted_here = True
-
-        try:
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_validator = {
-                    executor.submit(
-                        self._run_validator_safely, validator, p_df, p_dataset_name
-                    ): validator
-                    for validator in validators
-                }
-
-                for future in as_completed(future_to_validator):
-                    result_df, error_record = future.result()
-                    if result_df is not None and not df_is_empty(result_df):
-                        results_dfs.append(result_df)
-                    if error_record is not None:
-                        error_records.append(error_record)
-        finally:
-            if persisted_here:
-                try:
-                    p_df.unpersist()
-                except Exception:
-                    pass
-
-        if error_records:
-            error_df = to_dataframe(self.spark, error_records)
-            results_dfs.append(error_df)
-            logger.warning(
-                f"Added {len(error_records)} validator error record(s) "
-                f"for {p_dataset_name}"
-            )
-
-        if not results_dfs:
-            return to_dataframe(self.spark, []), {"decision": "PASS"}
-
-        final_results_df = reduce(
-            lambda d1, d2: d1.unionByName(d2, allowMissingColumns=True),
-            results_dfs,
-        )
-
-        agg_result = final_results_df.agg(
-            f.count(f.when(final_results_df.estado == "FAIL", 1)).alias("fail_count"),
-            f.count(
-                f.when(
-                    (final_results_df.estado == "FAIL")
-                    & (final_results_df.severidad == "CRITICAL"),
-                    1,
-                )
-            ).alias("critical_count"),
-        ).collect()[0]
-
-        fail_count = agg_result["fail_count"] or 0
-        critical_count = agg_result["critical_count"] or 0
-
-        should_stop_on_validator_errors = (
-            block_on_validator_error and len(error_records) > 0
-        )
-        decision = (
-            "STOP" if critical_count > 0 or should_stop_on_validator_errors else "PASS"
-        )
-        summary = {
-            "dataset_name": p_dataset_name,
-            "total_checks": len(validators),
-            "failures": fail_count,
-            "critical_failures": critical_count,
-            "validator_errors": len(error_records),
-            "block_on_validator_error": block_on_validator_error,
-            "decision": decision,
-        }
-
-        logger.info(
-            f"Validation completed for {p_dataset_name}. "
-            f"Failures: {fail_count}, Critical: {critical_count}, "
-            f"Errors: {len(error_records)}, "
-            f"BlockOnValidatorErrors: {block_on_validator_error}, "
-            f"Decision: {decision}"
-        )
-        return final_results_df, summary
+    with _REGISTRY_LOCK:
+        if _GLOBAL_REGISTRY is None:
+            registry = ValidatorRegistry()
+            _initialize_layer_validators(registry)
+            _GLOBAL_REGISTRY = registry
+    return _GLOBAL_REGISTRY
 
 
 class LayerUtils:
@@ -518,43 +297,44 @@ class LayerUtils:
     ) -> Dict[str, Any]:
         """Load sanity check configuration from YAML files.
 
+        Files named `<domain>_sanity_check.yml` are read from the given
+        directory (or the layer's `src/sanity_check/conf`), or from its domain
+        subdirectories, and merged in name order.
+
         Args:
             p_path: Path to the configuration file or directory.
             p_domain_filter: Optional domain filter to select specific configurations.
 
         Returns:
-            Merged configuration dictionary.
+            Merged configuration dictionary ({} if nothing is found).
         """
         try:
             absolute_path = os.path.abspath(p_path)
-            path_parts = absolute_path.split(os.sep)
             layer_name = next(
-                (part for part in path_parts if part in LayerUtils.VALID_LAYERS), None
+                (
+                    part
+                    for part in absolute_path.split(os.sep)
+                    if part in LayerUtils.VALID_LAYERS
+                ),
+                None,
             )
             if not layer_name:
                 logger.warning(f"Could not identify layer from path: {absolute_path}")
                 return {}
 
-            try:
-                config_dir = Path(absolute_path)
-            except Exception:
-                return {}
-
-            if config_dir.is_file() or str(config_dir).lower().endswith(".yml"):
+            config_dir = Path(absolute_path)
+            if config_dir.is_file() or absolute_path.lower().endswith(".yml"):
                 config_dir = config_dir.parent
 
-            base_dir = Path(EnvironmentConfig.get_root_dir())
             candidates = [
                 config_dir,
-                base_dir / layer_name / "src" / "sanity_check" / "conf",
+                Path(EnvironmentConfig.get_root_dir())
+                / layer_name
+                / "src"
+                / "sanity_check"
+                / "conf",
             ]
-
-            config_path = None
-            for cand in candidates:
-                if cand.exists() and cand.is_dir():
-                    config_path = cand
-                    break
-
+            config_path = next((c for c in candidates if c.is_dir()), None)
             if not config_path:
                 logger.warning(
                     f"No sanity check config directory found for layer "
@@ -564,31 +344,23 @@ class LayerUtils:
                 )
                 return {}
 
-            pattern = (
-                f"{p_domain_filter}_sanity_check.yml"
-                if p_domain_filter
-                else "*_sanity_check.yml"
-            )
-            domain_files = (
-                list(config_path.glob(pattern)) if config_path.exists() else []
-            )
-            if not domain_files and p_domain_filter:
-                sub = config_path / p_domain_filter
-                if sub.exists():
-                    domain_files = list(sub.glob("*_sanity_check.yml"))
+            if p_domain_filter:
+                domain_files = list(
+                    config_path.glob(f"{p_domain_filter}_sanity_check.yml")
+                ) or list((config_path / p_domain_filter).glob("*_sanity_check.yml"))
                 if not domain_files:
                     logger.warning(f"No config found for domain '{p_domain_filter}'")
                     return {}
-            elif not domain_files:
-                excluded = {"sanity_check", "utils", "conf"}
-                if config_path.exists() and config_path.is_dir():
+            else:
+                domain_files = list(config_path.glob("*_sanity_check.yml"))
+                if not domain_files:
                     for d in config_path.iterdir():
                         if (
                             d.is_dir()
                             and not d.name.startswith(("_", "."))
-                            and d.name not in excluded
+                            and d.name not in {"sanity_check", "utils", "conf"}
                         ):
-                            domain_files.extend(list(d.glob("*_sanity_check.yml")))
+                            domain_files.extend(d.glob("*_sanity_check.yml"))
                 if not domain_files:
                     logger.warning(f"No config files in {config_path}")
                     return {}
@@ -646,6 +418,11 @@ class LayerUtils:
         ]
 
         if len(matches) == 1:
+            logger.warning(
+                f"No exact config for '{p_dataset_name}'; applying the partial "
+                f"match '{matches[0][0]}'. Rename the config key to the dataset "
+                f"name to make this explicit."
+            )
             return matches[0][1]
         if len(matches) > 1:
             logger.warning(
@@ -654,67 +431,6 @@ class LayerUtils:
             )
 
         return None
-
-    @staticmethod
-    def consolidate_results(p_results: List[DataFrame]) -> DataFrame:
-        """Consolidate multiple DataFrame results into a single DataFrame.
-
-        Args:
-            p_results: List of DataFrames to consolidate.
-
-        Returns:
-            A single DataFrame containing all valid results.
-        """
-        empty = get_spark().createDataFrame([], schema=VALIDATION_RESULT_SCHEMA)
-        valid_results = [
-            r for r in (p_results or []) if r is not None and not df_is_empty(r)
-        ]
-
-        if not valid_results:
-            return empty
-        if len(valid_results) == 1:
-            return valid_results[0]
-
-        try:
-            return reduce(
-                lambda d1, d2: d1.unionByName(d2, allowMissingColumns=True),
-                valid_results,
-            )
-        except Exception as e:
-            logger.warning(f"unionByName failed: {e}, falling back to union")
-            return reduce(lambda d1, d2: d1.union(d2), valid_results)
-
-    @staticmethod
-    def log_summary(p_logger: Any, p_summary: Union[Dict[str, Any], List[Any]]) -> None:
-        """Log the validation summary.
-
-        Args:
-            p_logger: Logger instance to use for logging.
-            p_summary: Validation summary to log.
-        """
-        (p_logger or logger).info(f"Validation summary: {p_summary}")
-
-    @staticmethod
-    def _add_observation_dates(
-        p_df: DataFrame,
-        p_month_start: Optional[str],
-        p_month_end: Optional[str],
-    ) -> DataFrame:
-        """Add observation start and end dates to the DataFrame.
-
-        Args:
-            p_df: Input DataFrame.
-            p_month_start: Optional start date.
-            p_month_end: Optional end date.
-
-        Returns:
-            DataFrame with added observation dates.
-        """
-        if p_month_end:
-            p_df = p_df.withColumn("_observ_end_dt", f.lit(p_month_end))
-        if p_month_start:
-            p_df = p_df.withColumn("_observ_start_dt", f.lit(p_month_start))
-        return p_df
 
     @staticmethod
     def _resolve_date_col(
@@ -768,23 +484,60 @@ class LayerUtils:
             logger.warning(f"Date column '{p_date_col}' not in {p_source_name}")
             return p_df
 
-        col_expr = f.to_date(f.col(actual_col))
-        start_expr = f.to_date(f.lit(p_start_dt))
-        end_expr = f.to_date(f.lit(p_end_dt))
+        return p_df.filter(
+            LayerUtils._date_range_condition(
+                p_df, actual_col, p_start_dt, p_end_dt
+            )
+        )
 
-        filtered = p_df.filter(col_expr.between(start_expr, end_expr))
+    @staticmethod
+    def _date_range_condition(
+        p_df: DataFrame, p_actual_col: str, p_start_dt: str, p_end_dt: str
+    ):
+        """Build an inclusive date-range condition that keeps partition pruning.
 
-        return filtered
+        The column is compared in its own type: wrapping a DATE or TIMESTAMP
+        partition column in to_date() can stop Delta from skipping files.
 
+        Args:
+            p_df: DataFrame owning the column
+            p_actual_col: Actual (resolved) column name
+            p_start_dt: First day included (YYYY-MM-DD)
+            p_end_dt: Last day included (YYYY-MM-DD)
+
+        Returns:
+            Boolean Column expression.
+        """
+        col = f.col(p_actual_col)
+        start_date = f.to_date(f.lit(p_start_dt))
+        end_date = f.to_date(f.lit(p_end_dt))
+        try:
+            kind = p_df.schema[p_actual_col].dataType.simpleString()
+        except Exception:
+            kind = ""
+
+        if kind == "date":
+            return col.between(start_date, end_date)
+        if kind.startswith("timestamp"):
+            return (col >= start_date.cast(kind)) & (
+                col < f.date_add(end_date, 1).cast(kind)
+            )
+        return f.to_date(col).between(start_date, end_date)
+
+    # Only error codes that unambiguously mean "this table does not exist".
+    # Generic phrases ("does not exist", "cannot be found") also appear for a
+    # missing schema/catalog or column, and must not let the gate pass.
     _MISSING_TABLE_PHRASES = (
         "table_or_view_not_found",
-        "does_not_exist",
-        "does not exist",
-        "cannot be found",
-        "invalid_table_or_view",
-        "unresolvedrelation",
-        "unresolved relation",
         "delta_table_not_found",
+        "table or view not found",
+    )
+
+    _SESSION_ERROR_PHRASES = (
+        "session not found",
+        "invalid_handle",
+        "incorrect server side session identifier",
+        "session invalid",
     )
 
     @staticmethod
@@ -801,63 +554,35 @@ class LayerUtils:
         return any(phrase in error_msg for phrase in LayerUtils._MISSING_TABLE_PHRASES)
 
     @staticmethod
-    def _execute_spark_sql_with_retry(
-        p_sql_query: str,
-        p_label: str,
-        p_max_retries: int = 2,
-        p_raise_on_failure: bool = False,
-    ) -> Optional[DataFrame]:
-        """Execute Spark SQL with automatic session.
+    def _is_session_error(p_error_msg: str) -> bool:
+        """Return True if an error message indicates a dead Spark Connect session."""
+        error_msg = (p_error_msg or "").lower()
+        return any(phrase in error_msg for phrase in LayerUtils._SESSION_ERROR_PHRASES)
 
-        Args:
-            p_sql_query: SQL query to execute
-            p_label: Label for logging and error messages
-            p_max_retries: Maximum number of retry attempts
-            p_raise_on_failure: If True, re-raise the last error instead of
-                returning None. Lets callers distinguish a real failure from an
-                empty/None result (e.g. the quality gate must fail closed).
+    @staticmethod
+    def _with_session_retry(p_action: Callable[[], Any], p_label: str) -> Any:
+        """Run a Spark action; if the session was lost, reopen it and retry once.
 
-        Returns:
-            DataFrame result or None if execution failed (when not raising).
+        The callable must include the action that actually talks to the server
+        (count, collect, schema...) and call get_spark() itself, so the retry
+        uses the new session. Spark Connect builds DataFrames lazily, so
+        retrying only the construction would never see a session error.
 
         Raises:
-            Exception: The last error encountered, only when p_raise_on_failure.
+            Exception: The error of the last attempt.
         """
-        last_error = None
-
-        for attempt in range(p_max_retries):
+        for attempt in (1, 2):
             try:
-                return get_spark().sql(p_sql_query)
+                return p_action()
             except Exception as e:
-                last_error = e
-                error_msg = str(e).lower()
-
-                is_session_error = any(
-                    phrase in error_msg
-                    for phrase in [
-                        "session not found",
-                        "invalid_handle",
-                        "incorrect server side session identifier",
-                        "session invalid",
-                    ]
-                )
-
-                if is_session_error and attempt < p_max_retries - 1:
-                    global _SPARK_SESSION
-                    _SPARK_SESSION = None
+                if attempt == 1 and LayerUtils._is_session_error(str(e)):
                     logger.warning(
-                        f"Session error for {p_label}, retrying "
-                        f"(attempt {attempt + 1}/{p_max_retries})"
+                        f"Session error for {p_label}, reopening session and retrying"
                     )
+                    reset_spark()
                     continue
-                else:
-                    break
-
-        if last_error:
-            logger.error(f"Failed to execute SQL for {p_label}: {last_error}")
-            if p_raise_on_failure:
-                raise last_error
-        return None
+                logger.error(f"Spark operation failed for {p_label}: {e}")
+                raise
 
     @staticmethod
     def load_dataset(
@@ -865,8 +590,12 @@ class LayerUtils:
         p_config: Dict[str, Any],
         p_start_dt: Optional[str] = None,
         p_end_dt: Optional[str] = None,
-    ) -> Optional[DataFrame]:
+    ) -> DataFrame:
         """Load a dataset (Parquet or Delta/SQL) with optional date filtering.
+
+        Errors are raised, not swallowed: a dataset that cannot be read must be
+        reported as a failure, never skipped as if it had no data. An empty
+        result is returned as-is so the engine can apply `fail_on_empty`.
 
         Args:
             p_metadata: Dataset metadata (dataset_name, path or database, date_col)
@@ -875,58 +604,56 @@ class LayerUtils:
             p_end_dt: End date for filtering; skipped when None
 
         Returns:
-            Filtered DataFrame or None if an error occurs.
+            Filtered DataFrame (possibly empty).
+
+        Raises:
+            ValueError: If the metadata has neither a path nor a table.
+            Exception: Any error raised while reading the source.
         """
-
         label = p_metadata.get("dataset_name") or p_metadata.get("path") or "unknown"
-        date_col = LayerUtils._resolve_date_col(p_config, p_metadata)
+        date_col = LayerUtils._resolve_date_col(p_config or {}, p_metadata)
+        path = p_metadata.get("path")
 
-        try:
-            path = p_metadata.get("path")
-            if path:
+        if path:
+
+            def _read() -> DataFrame:
                 try:
                     df = get_spark().read.format("parquet").load(path)
                 except Exception as e:
-                    if "JVM_ATTRIBUTE_NOT_SUPPORTED" in str(e):
-                        df = get_spark().read.parquet(path)
-                    else:
+                    if "JVM_ATTRIBUTE_NOT_SUPPORTED" not in str(e):
                         raise
-            else:
-                database = p_metadata.get("database")
-                dataset_name = p_metadata.get("dataset_name")
-                if database and dataset_name:
-                    full_table = f"{database}.{dataset_name}"
-                    try:
-                        catalog = EnvironmentConfig.get_catalog_name()
-                        get_spark().sql(f"USE CATALOG {catalog}")
-                    except Exception as e:
-                        logger.warning(f"Could not set catalog: {e}")
-                    df = LayerUtils._execute_spark_sql_with_retry(
-                        f"SELECT * FROM {full_table}", p_label=label, p_max_retries=2
-                    )
-                else:
-                    logger.error(
-                        "Invalid metadata: missing path or database/dataset_name"
-                    )
-                    return None
+                    df = get_spark().read.parquet(path)
+                _ = df.columns
+                return df
 
-            if df is None:
-                return None
-
-            if p_start_dt and p_end_dt:
-                df = LayerUtils._apply_date_filter(
-                    df, date_col, p_start_dt, p_end_dt, label
+        else:
+            database = p_metadata.get("database")
+            dataset_name = p_metadata.get("dataset_name")
+            if not (database and dataset_name):
+                raise ValueError(
+                    f"Invalid metadata for {label}: missing path or "
+                    f"database/dataset_name"
                 )
+            catalog = EnvironmentConfig.get_catalog_name()
+            if not (
+                LayerUtils._validate_sql_identifier(catalog, "catalog")
+                and LayerUtils._validate_sql_identifier(database, "database")
+                and LayerUtils._validate_sql_identifier(dataset_name, "dataset_name")
+            ):
+                raise ValueError(f"Unsafe table identifier for {label}")
+            query = f"SELECT * FROM {catalog}.{database}.{dataset_name}"
 
-            if df_is_empty(df):
-                logger.warning(f"⚠️ No data found for {label} in the requested range.")
-                return None
+            def _read() -> DataFrame:
+                df = get_spark().sql(query)
+                _ = df.columns  # analyze now: missing tables/dead sessions fail here
+                return df
 
-            return df
-
-        except Exception as e:
-            logger.error(f"Error loading {label}: {e}")
-            return None
+        df = LayerUtils._with_session_retry(_read, label)
+        if p_start_dt and p_end_dt:
+            df = LayerUtils._apply_date_filter(
+                df, date_col, p_start_dt, p_end_dt, label
+            )
+        return df
 
     @staticmethod
     def load_metadata_from_catalog(
@@ -957,76 +684,45 @@ class LayerUtils:
             logger.warning(f"No 'Input' section in {catalog_path}")
             return []
 
+        entries = [v for v in inputs.values() if isinstance(v, dict)]
+        env = EnvironmentConfig.get_environment()
         is_parquet = any(
-            v.get("file_extension", "parquet") == "parquet"
-            for v in inputs.values()
-            if isinstance(v, dict)
+            e.get("file_extension", "parquet") == "parquet" for e in entries
         )
-        metadata = []
 
-        if is_parquet:
-            env = EnvironmentConfig.get_environment()
-            settings = load_yaml_file(
-                os.path.join(base_dir, "env", "base", "global_settings.yml")
-            )
-            if env:
-                env_path = os.path.join(base_dir, "env", env, "global_settings.yml")
-                if os.path.exists(env_path):
-                    settings = {**settings, **load_yaml_file(env_path)}
-
-            base_path = settings.get("raw_data_path", "")
-            for entry in inputs.values():
-                if not isinstance(entry, dict):
-                    continue
-                raw_path = entry.get("path", "").rstrip("/")
-                full_path = (
-                    base_path + raw_path + entry.get("additional_raw_option", "/*/*/*")
-                )
-                metadata.append(
-                    {
-                        "dataset_name": raw_path.split("/")[-1],
-                        "date_col": entry.get("partition_col") or None,
-                        "path": full_path,
-                    }
-                )
-        else:
-            env = EnvironmentConfig.get_environment()
+        if not is_parquet:
             database = f"{env}_{p_data_layer}"
-            for entry in inputs.values():
-                if not isinstance(entry, dict):
-                    continue
-                table_name = entry.get("path", "")
-                if table_name:
-                    metadata.append(
-                        {
-                            "dataset_name": table_name,
-                            "database": database,
-                            "date_col": entry.get("partition_col") or None,
-                        }
-                    )
+            return [
+                {
+                    "dataset_name": e["path"],
+                    "database": database,
+                    "date_col": e.get("partition_col") or None,
+                }
+                for e in entries
+                if e.get("path")
+            ]
+
+        settings = load_yaml_file(
+            os.path.join(base_dir, "env", "base", "global_settings.yml")
+        )
+        env_path = os.path.join(base_dir, "env", env, "global_settings.yml")
+        if os.path.exists(env_path):
+            settings = {**settings, **load_yaml_file(env_path)}
+        base_path = settings.get("raw_data_path", "")
+
+        metadata = []
+        for entry in entries:
+            raw_path = entry.get("path", "").rstrip("/")
+            metadata.append(
+                {
+                    "dataset_name": raw_path.split("/")[-1],
+                    "date_col": entry.get("partition_col") or None,
+                    "path": base_path
+                    + raw_path
+                    + entry.get("additional_raw_option", "/*/*/*"),
+                }
+            )
         return metadata
-
-    @staticmethod
-    def _group_month_ranges_by_year(
-        p_month_ranges: List[Tuple[str, str]]
-    ) -> List[List[Tuple[str, str]]]:
-        """Group month ranges by year.
-
-        Args:
-            p_month_ranges: List of tuples containing start.
-
-        Returns:
-            List of lists.
-        """
-        if not p_month_ranges:
-            return []
-
-        years_map: Dict[str, List[Tuple[str, str]]] = {}
-        for m_start, m_end in p_month_ranges:
-            year = m_start[:4]
-            years_map.setdefault(year, []).append((m_start, m_end))
-
-        return [years_map[y] for y in sorted(years_map.keys())]
 
     @staticmethod
     def _resolve_month_ranges(
@@ -1035,13 +731,22 @@ class LayerUtils:
         """Resolve month ranges based on start and end dates.
 
         Args:
-            p_start_dt: Start date boundary (string format)
-            p_end_dt: End date boundary (string format)
+            p_start_dt: Start date boundary (YYYY-MM-DD)
+            p_end_dt: End date boundary (YYYY-MM-DD)
 
         Returns:
             List of tuples containing start and end dates for each month.
+
+        Raises:
+            ValueError: If a date is malformed or start_dt is after end_dt.
         """
         if not (p_start_dt and p_end_dt):
+            if p_start_dt or p_end_dt:
+                logger.warning(
+                    f"Only one of start_dt/end_dt was provided "
+                    f"('{p_start_dt}' / '{p_end_dt}'); both are required to use "
+                    f"a custom range."
+                )
             today = datetime.now(_TIMEZONE_UTC_6)
             first_day = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
             last_day = today.replace(day=1) - timedelta(days=1)
@@ -1054,6 +759,12 @@ class LayerUtils:
 
         start = datetime.strptime(p_start_dt, "%Y-%m-%d").date()
         end = datetime.strptime(p_end_dt, "%Y-%m-%d").date()
+        if start > end:
+            raise ValueError(
+                f"Invalid date range: start_dt '{p_start_dt}' is after "
+                f"end_dt '{p_end_dt}'."
+            )
+
         current = start.replace(day=1)
         month_ranges = []
 
@@ -1072,179 +783,30 @@ class LayerUtils:
             )
         return month_ranges
 
-    @staticmethod
-    def _validate_df_over_months(
-        p_df: DataFrame,
-        p_dataset_name: str,
-        p_config: Dict[str, Any],
-        p_validate_func,
-        p_date_col: Optional[str],
-        p_month_ranges: List[Tuple[str, str]],
-        p_notify_on_critical: bool = False,
-    ) -> Tuple[List[DataFrame], List[Dict[str, Any]]]:
-        """Validate one DataFrame across several month ranges.
-
-        Args:
-            p_df: DataFrame to validate (already loaded; may be persisted).
-            p_dataset_name: Dataset/table name for logging and records.
-            p_config: Dataset validator configuration.
-            p_validate_func: Callable (name, df, config) -> (results_df, summary).
-            p_date_col: Date/partition column for monthly filtering (or None).
-            p_month_ranges: List of (month_start, month_end) tuples.
-            p_notify_on_critical: When True, send a Teams notification per STOP.
-
-        Returns:
-            Tuple of (list_of_result_dataframes, list_of_stop_summaries).
-        """
-        result_dfs: List[DataFrame] = []
-        stop_summaries: List[Dict[str, Any]] = []
-
-        for month_start, month_end in p_month_ranges:
-            month_df = LayerUtils._apply_date_filter(
-                p_df, p_date_col, month_start, month_end, p_dataset_name
-            )
-
-            if df_is_empty(month_df):
-                logger.debug(
-                    f"'{p_dataset_name}': no data for {month_start} → {month_end}"
-                )
-                continue
-
-            try:
-                res_df, summary = p_validate_func(p_dataset_name, month_df, p_config)
-            except Exception as e:
-                logger.error(
-                    f"❌ Error validating '{p_dataset_name}' for "
-                    f"{month_start} → {month_end}: {e}",
-                    exc_info=True,
-                )
-                continue
-
-            if res_df is not None and not df_is_empty(res_df):
-                res_df = LayerUtils._add_observation_dates(
-                    res_df, month_start, month_end
-                )
-                result_dfs.append(res_df)
-
-            if summary and summary.get("decision") == "STOP":
-                summary["month"] = month_end
-                summary["dataset_name"] = p_dataset_name
-                stop_summaries.append(summary)
-                if p_notify_on_critical:
-                    LayerUtils._send_critical_notification(summary)
-
-        return result_dfs, stop_summaries
-
-    @staticmethod
-    def _process_single_month(
-        p_datasets_metadata: List[Dict[str, Any]],
-        p_config_all: Dict[str, Any],
-        p_validate_func,
-        p_month_start: str,
-        p_month_end: str,
-    ) -> Tuple[List[DataFrame], List[Dict[str, Any]], int, int]:
-        """Process all datasets for a single month.
-
-        Args:
-            p_datasets_metadata: List of dataset metadata dictionaries
-            p_config_all: Full configuration for all datasets
-            p_validate_func: Callable that validates a single dataset
-            p_month_start: Start date for the month
-            p_month_end: End date for the month
-
-        Returns:
-            Tuple of (result_dataframes, critical_summaries)
-        """
-        result_dfs = []
-        critical_summaries = []
-        validated_count = 0
-        skipped_count = 0
-
-        datasets_to_process = len(p_datasets_metadata)
-        if datasets_to_process == 0:
-            return result_dfs, critical_summaries, validated_count, skipped_count
-
-        for meta in p_datasets_metadata:
-            dataset_name = meta.get("dataset_name", "unknown")
-            config = LayerUtils.get_dataset_config(p_config_all, dataset_name)
-
-            if config is None:
-                skipped_count += 1
-                continue
-
-            logger.info(f"🔍 Validating dataset: {dataset_name}")
-            res_df, summary = p_validate_func(
-                meta, p_config_all, p_month_start, p_month_end
-            )
-
-            if res_df is not None:
-                res_df = LayerUtils._add_observation_dates(
-                    res_df, p_month_start, p_month_end
-                )
-                result_dfs.append(res_df)
-                validated_count += 1
-            else:
-                skipped_count += 1
-
-            if summary and summary.get("decision") == "STOP":
-                summary["month"] = p_month_end
-                critical_summaries.append(summary)
-                LayerUtils._send_critical_notification(summary)
-
-        return result_dfs, critical_summaries, validated_count, skipped_count
-
-    @staticmethod
-    def process_all_datasets(
-        p_datasets_metadata: List[Dict[str, Any]],
-        p_config_all: Dict[str, Any],
-        p_validate_func,
-        p_start_dt: Optional[str] = None,
-        p_end_dt: Optional[str] = None,
-    ) -> Tuple[Optional[DataFrame], List[Dict[str, Any]]]:
-        """Generic function to process all datasets and collect validation results.
-
-        Args:
-            p_datasets_metadata: List of dataset metadata dictionaries
-            p_config_all: Full configuration for all datasets
-            p_validate_func: Callable that validates a single dataset
-            p_start_dt: Optional start date for filtering
-            p_end_dt: Optional end date for filtering
-
-        Returns:
-            Tuple of (consolidated_result_dataframe, critical_summaries_list)
-        """
-        month_ranges = LayerUtils._resolve_month_ranges(p_start_dt, p_end_dt)
-
-        all_results_dfs = []
-        all_critical_summaries = []
-        total_validated = 0
-        total_skipped = 0
-
-        for month_start, month_end in month_ranges:
-            (
-                result_dfs,
-                critical_summaries,
-                validated,
-                skipped,
-            ) = LayerUtils._process_single_month(
-                p_datasets_metadata,
-                p_config_all,
-                p_validate_func,
-                month_start,
-                month_end,
-            )
-
-            all_results_dfs.extend(result_dfs)
-            all_critical_summaries.extend(critical_summaries)
-            total_validated += validated
-            total_skipped += skipped
-
-            if len(month_ranges) > 1:
-                logger.info(
-                    f"   ✓ Month {month_end}: validated {validated}, skipped {skipped}"
-                )
-
-        return LayerUtils.consolidate_results(all_results_dfs), all_critical_summaries
+    # Validator types whose config keys _extract_columns_for_caching understands.
+    # Any other enabled type (a layer-specific validator) disables pruning,
+    # since its referenced columns cannot be known.
+    _PRUNABLE_VALIDATOR_TYPES = frozenset(STANDARD_VALIDATORS)
+    # Config keys holding column names (as a string or a list) ...
+    _COLUMN_LIST_KEYS = (
+        "columns",
+        "fields",
+        "column_list",
+        "check_columns",
+        "primary_key",
+        "pk",
+        "unique_id",
+        "unique_keys",
+    )
+    # ... and config keys holding a mapping keyed by column name.
+    _COLUMN_MAPPING_KEYS = (
+        "null_thresholds",
+        "null_limits",
+        "null_percentages",
+        "dimensions",
+        "allowed_values",
+        "domain_constraints",
+    )
 
     @staticmethod
     def _extract_columns_for_caching(
@@ -1254,111 +816,71 @@ class LayerUtils:
     ) -> List[str]:
         """Extract columns needed for sanity checks to optimize memory usage.
 
+        Pruning is skipped (all columns returned) whenever a referenced column
+        cannot be determined with certainty.
+
         Args:
             p_config: Dataset validator configuration
             p_date_col: Date/partition column for filtering
             p_df_columns: All columns available in the DataFrame
 
         Returns:
-            List of column names to cache (lowercased for case-insensitive matching)
+            List of actual column names to keep.
         """
-        columns_to_cache = set()
-        columns_by_lower = {col.lower(): col for col in p_df_columns}
-        unmapped_identifiers: set = set()
+        enabled = {
+            k: v
+            for k, v in p_config.items()
+            if isinstance(v, dict) and v.get("enabled", False)
+        }
+        custom_types = set(enabled) - LayerUtils._PRUNABLE_VALIDATOR_TYPES
+        if custom_types:
+            logger.info(
+                f"Layer-specific validator(s) {sorted(custom_types)} enabled; "
+                f"skipping column pruning."
+            )
+            return list(p_df_columns)
 
-        def _map_token(token: str) -> Optional[str]:
-            """Map a token to an actual column, tolerating qualified names."""
-            actual = columns_by_lower.get(token)
-            if actual:
-                return actual
-            if "." in token:
-                return columns_by_lower.get(token.rsplit(".", 1)[-1])
+        columns_by_lower = {col.lower(): col for col in p_df_columns}
+
+        def _map(name: str) -> Optional[str]:
+            """Resolve a name case-insensitively, tolerating qualified names."""
+            name = name.lower()
+            if name in columns_by_lower:
+                return columns_by_lower[name]
+            if "." in name:
+                return columns_by_lower.get(name.rsplit(".", 1)[-1])
             return None
 
-        def add_configured_columns(raw_cols: Any) -> None:
-            if isinstance(raw_cols, str):
-                raw_cols = [raw_cols]
-            if not isinstance(raw_cols, list):
-                return
-
-            for col_spec in raw_cols:
-                if not isinstance(col_spec, str):
-                    continue
-                actual_col = _map_token(col_spec.lower())
-                if actual_col:
-                    columns_to_cache.add(actual_col)
-
-        def add_dict_keys_as_columns(raw_mapping: Any) -> None:
-            if isinstance(raw_mapping, dict):
-                add_configured_columns(list(raw_mapping.keys()))
-
-        def add_columns_from_consistency_rules(rules: Any) -> None:
-            if not isinstance(rules, list):
-                return
-
-            pattern = r"`([^`]+)`|([A-Za-z_][A-Za-z0-9_.]*)"
-            for rule in rules:
-                if not isinstance(rule, dict):
-                    continue
-
-                add_configured_columns(rule.get("column"))
-
-                condition = rule.get("condition")
-                if not isinstance(condition, str):
-                    continue
-
-                for quoted_col, plain_col in re.findall(pattern, condition):
-                    token = (quoted_col or plain_col).strip().lower()
-                    if not token or token in _SQL_TOKEN_SKIPLIST:
+        names: List[str] = []
+        rule_tokens: List[str] = []
+        for validator_type, cfg in enabled.items():
+            for key in LayerUtils._COLUMN_LIST_KEYS:
+                names += _str_list(cfg.get(key))
+            for key in LayerUtils._COLUMN_MAPPING_KEYS:
+                if isinstance(cfg.get(key), dict):
+                    names += _str_list(list(cfg[key]))
+            for check in _list(cfg.get("value_checks")):
+                if isinstance(check, dict):
+                    names += _str_list(check.get("column"))
+            if validator_type == "consistency" or "rules" in cfg:
+                for rule in _list(cfg.get("rules")):
+                    if not isinstance(rule, dict):
                         continue
-                    actual_col = _map_token(token)
-                    if actual_col:
-                        columns_to_cache.add(actual_col)
-                    else:
-                        unmapped_identifiers.add(token)
+                    names += _str_list(rule.get("column"))
+                    if isinstance(rule.get("condition"), str):
+                        rule_tokens += _rule_identifiers(rule["condition"])
 
-        if p_date_col:
-            actual_col = columns_by_lower.get(p_date_col.lower())
+        columns_to_cache = {col for col in map(_map, names) if col}
+        unmapped_identifiers = set()
+        for token in rule_tokens:
+            actual_col = _map(token)
             if actual_col:
                 columns_to_cache.add(actual_col)
+            else:
+                unmapped_identifiers.add(token)
 
-        for validator_type, validator_config in p_config.items():
-            if not isinstance(validator_config, dict):
-                continue
-            if not validator_config.get("enabled", False):
-                continue
-
-            for key in [
-                "columns",
-                "fields",
-                "column_list",
-                "check_columns",
-                "primary_key",
-                "pk",
-                "unique_id",
-                "unique_keys",
-            ]:
-                add_configured_columns(validator_config.get(key))
-
-            for key in [
-                "null_thresholds",
-                "null_limits",
-                "null_percentages",
-                "dimensions",
-                "allowed_values",
-                "domain_constraints",
-            ]:
-                add_dict_keys_as_columns(validator_config.get(key))
-
-            value_checks = validator_config.get("value_checks")
-            if isinstance(value_checks, list):
-                for value_check in value_checks:
-                    if not isinstance(value_check, dict):
-                        continue
-                    add_configured_columns(value_check.get("column"))
-
-            if validator_type == "consistency" or "rules" in validator_config:
-                add_columns_from_consistency_rules(validator_config.get("rules"))
+        if p_date_col and p_date_col.lower() in columns_by_lower:
+            columns_to_cache.add(columns_by_lower[p_date_col.lower()])
 
         if unmapped_identifiers:
             logger.warning(
@@ -1368,145 +890,60 @@ class LayerUtils:
             )
             return list(p_df_columns)
 
-        has_enabled_validator = any(
-            isinstance(v, dict) and v.get("enabled", False) for v in p_config.values()
-        )
-        if not columns_to_cache and has_enabled_validator:
+        if not columns_to_cache and enabled:
             logger.warning(
                 "Column extraction produced no columns while validators are "
                 "enabled; skipping prune and validating with all columns."
             )
             return list(p_df_columns)
 
-        result_cols = sorted(list(columns_to_cache))
+        result_cols = sorted(columns_to_cache)
         logger.debug(
             f"Extracted {len(result_cols)} columns for caching "
             f"(from {len(p_df_columns)} total)"
         )
-
         return result_cols
 
     @staticmethod
-    def process_all_datasets_with_cache(
-        p_datasets_metadata: List[Dict[str, Any]],
-        p_config_all: Dict[str, Any],
-        p_loader_func,
-        p_validate_func,
-        p_start_dt: Optional[str] = None,
-        p_end_dt: Optional[str] = None,
-    ) -> Tuple[Optional[DataFrame], List[Dict[str, Any]]]:
-        """Process all datasets with caching for large date ranges.
+    def _send_stop_notification(
+        p_dataset_name: str, p_stop_summaries: List[Dict[str, Any]]
+    ) -> None:
+        """Send one Teams message per dataset listing every month that STOPped.
 
         Args:
-            p_datasets_metadata: List of dataset metadata dictionaries
-            p_config_all: Full configuration for all datasets
-            p_loader_func: Callable to load dataset for date range
-            p_validate_func: Callable that validates dataset for month
-            p_start_dt: Start date for filtering
-            p_end_dt: End date for filtering
-
-        Returns:
-            Tuple of (consolidated results DataFrame, critical summaries list)
+            p_dataset_name: Dataset name
+            p_stop_summaries: Month summaries with decision STOP
         """
-        month_ranges = LayerUtils._resolve_month_ranges(p_start_dt, p_end_dt)
-
-        dataset_cache: Dict[str, Tuple[DataFrame, Dict, Optional[str]]] = {}
-
-        for meta in p_datasets_metadata:
-            dataset_name = meta.get("dataset_name", "unknown")
-            config = LayerUtils.get_dataset_config(p_config_all, dataset_name)
-
-            if config is None:
-                logger.warning(f"⚠️ No config found for dataset '{dataset_name}'")
-                continue
-
-            try:
-                full_df = p_loader_func(meta, p_config_all, p_start_dt, p_end_dt)
-
-                if full_df is None or df_is_empty(full_df):
-                    logger.warning(
-                        f"Dataset '{dataset_name}' is empty for range "
-                        f"{p_start_dt} → {p_end_dt}"
-                    )
-                    continue
-
-                date_col = LayerUtils._resolve_date_col(config, meta)
-
-                original_col_count = len(full_df.columns)
-                columns_for_cache = LayerUtils._extract_columns_for_caching(
-                    config, date_col, full_df.columns
-                )
-
-                if len(columns_for_cache) < original_col_count:
-                    optimized_df = full_df.select(*columns_for_cache)
-                else:
-                    optimized_df = full_df
-
-                optimized_df.persist(StorageLevel.MEMORY_AND_DISK)
-
-                dataset_cache[dataset_name] = (optimized_df, config, date_col)
-
-            except Exception as e:
-                logger.error(
-                    f"❌ Error loading dataset '{dataset_name}': {e}", exc_info=True
-                )
-                continue
-
-        if not dataset_cache:
-            logger.warning("No datasets loaded for caching")
-            return LayerUtils.consolidate_results([]), []
-
-        all_results_dfs = []
-        all_critical_summaries = []
-
-        try:
-            for dataset_name, (full_df, config, date_col) in dataset_cache.items():
-                res_dfs, stop_summaries = LayerUtils._validate_df_over_months(
-                    full_df,
-                    dataset_name,
-                    config,
-                    p_validate_func,
-                    date_col,
-                    month_ranges,
-                    p_notify_on_critical=True,
-                )
-                all_results_dfs.extend(res_dfs)
-                all_critical_summaries.extend(stop_summaries)
-        finally:
-            for full_df, _, _ in dataset_cache.values():
-                try:
-                    full_df.unpersist()
-                except Exception as e:
-                    logger.warning(f"⚠️ Error unpersisting DataFrame: {e}")
-
-        return LayerUtils.consolidate_results(all_results_dfs), all_critical_summaries
-
-    @staticmethod
-    def _send_critical_notification(p_summary: Dict[str, Any]) -> None:
-        """Notify Teams when a dataset reports CRITICAL failures.
-
-        Args:
-            p_summary: Validation summary dictionary with failures and dataset_name
-        """
-        if not p_summary:
-            return
-
-        critical_count = p_summary.get("critical_failures", 0)
-        if critical_count <= 0:
+        if not p_stop_summaries:
             return
 
         env = EnvironmentConfig.get_environment()
-        dataset_name = p_summary.get("dataset_name", "unknown")
-        if env in ["dev", "prod"]:
-            message = (
-                f"🚨 CRITICAL sanity check failure ({env})\n"
-                f"Dataset: {dataset_name}\n"
-                f"Total checks: {p_summary.get('total_checks')}\n"
-                f"Failures: {p_summary.get('failures')}\n"
-                f"Critical failures: {critical_count}\n"
-                f"Decision: {p_summary.get('decision')}"
-            )
+        if env not in ["dev", "prod"]:
+            return
+
+        months = [str(s.get("month", "N/A")) for s in p_stop_summaries]
+        shown = ", ".join(months[:24]) + (
+            f" (+{len(months) - 24} más)" if len(months) > 24 else ""
+        )
+        message = (
+            f"🚨 CRITICAL sanity check failure ({env})\n"
+            f"Dataset: {p_dataset_name}\n"
+            f"Months blocked: {len(months)} → {shown}\n"
+            f"Critical failures: "
+            f"{sum(s.get('critical_failures', 0) for s in p_stop_summaries)}\n"
+            f"Validator errors: "
+            f"{sum(s.get('validator_errors', 0) for s in p_stop_summaries)}\n"
+            f"Decision: STOP"
+        )
+        errors = {s["error"] for s in p_stop_summaries if s.get("error")}
+        if errors:
+            message += f"\nError: {'; '.join(sorted(errors))[:500]}"
+        try:
             send_message_teams(message)
+        except Exception as e:
+            logger.error(
+                f"Could not send Teams notification for {p_dataset_name}: {e}"
+            )
 
     @staticmethod
     def _validate_sql_identifier(p_identifier: str, p_label: str) -> bool:
@@ -1549,6 +986,36 @@ class LayerUtils:
         except ValueError:
             return False
 
+    _QUALITY_TABLE_NAME = "sc_sanity_check_results"
+
+    @staticmethod
+    def _resolve_quality_table(
+        p_catalog: str, p_schema_name: str, p_label: str
+    ) -> Optional[str]:
+        """Find the quality history table, preferring the layer schema.
+
+        Errors (permissions, network, session) are raised so the caller fails
+        closed; only a confirmed absence returns None.
+
+        Args:
+            p_catalog: Catalog name
+            p_schema_name: Layer schema name (e.g. 'dev_data_cleaning')
+            p_label: Label for logging
+
+        Returns:
+            Fully qualified table name, or None if it does not exist yet.
+        """
+        candidates = [
+            f"{p_catalog}.{p_schema_name}.{LayerUtils._QUALITY_TABLE_NAME}",
+            f"{p_catalog}.{LayerUtils._QUALITY_TABLE_NAME}",
+        ]
+        for table in candidates:
+            if LayerUtils._with_session_retry(
+                lambda t=table: get_spark().catalog.tableExists(t), p_label
+            ):
+                return table
+        return None
+
     @staticmethod
     def check_quality_gate(
         p_dataset_name: str,
@@ -1558,6 +1025,9 @@ class LayerUtils:
     ) -> bool:
         """Check if a dataset passed its quality gate for a date range.
 
+        Fails closed: any error other than a confirmed missing history table
+        blocks the dataset.
+
         Args:
             p_dataset_name: Name of the dataset
             p_start_date: Start date for the quality gate check (YYYY-MM-DD)
@@ -1565,33 +1035,34 @@ class LayerUtils:
             p_layer: Layer of the dataset (default: "raw_data")
 
         Returns:
-            False if critical failures found, True if passed or table not yet created
+            False if critical failures were found or the gate could not be
+            verified; True if passed or the history table does not exist yet.
         """
-        catalog = EnvironmentConfig.get_catalog_name()
-        prefix_path = os.path.join(
-            EnvironmentConfig.get_root_dir(), "env", "base", "prefixes.yml"
-        )
-        prefix_map = load_yaml_file(prefix_path) or {}
         try:
-            if not LayerUtils._validate_sql_identifier(p_dataset_name, "dataset_name"):
+            if not p_dataset_name or not LayerUtils._validate_sql_identifier(
+                p_dataset_name, "dataset_name"
+            ):
                 return False
 
             if not (
                 LayerUtils._is_valid_iso_date(p_start_date)
                 and LayerUtils._is_valid_iso_date(p_end_date)
             ):
-                logger.warning(
-                    f"Quality gate skipped for '{p_dataset_name}': invalid date range "
-                    f"'{p_start_date}' → '{p_end_date}' (expected YYYY-MM-DD)."
+                logger.error(
+                    f"❌ Quality gate blocked for '{p_dataset_name}': invalid date "
+                    f"range '{p_start_date}' → '{p_end_date}' (expected YYYY-MM-DD)."
                 )
-                return True
+                return False
 
-            domain = os.getenv("output_domain", "")
-            prefix_value = prefix_map.get(domain)
+            catalog = EnvironmentConfig.get_catalog_name()
+            prefix_path = os.path.join(
+                EnvironmentConfig.get_root_dir(), "env", "base", "prefixes.yml"
+            )
+            prefix_map = load_yaml_file(prefix_path) or {}
+            prefix_value = prefix_map.get(os.getenv("output_domain", ""))
 
             env_value = os.getenv("env") or EnvironmentConfig.get_environment()
             schema_name = f"{env_value}_{p_layer}"
-            quality_table = f"{catalog}.{schema_name}.sc_sanity_check_results"
 
             if not (
                 LayerUtils._validate_sql_identifier(catalog, "catalog")
@@ -1613,67 +1084,30 @@ class LayerUtils:
             candidates = [p_dataset_name]
             if prefix_value:
                 candidates.append(f"{prefix_value}_{p_dataset_name}")
-
             dataset_list = "', '".join(candidates)
 
-            try:
-                tables_df = LayerUtils._execute_spark_sql_with_retry(
-                    f"SHOW TABLES IN {catalog}.{schema_name}",
-                    p_label=p_dataset_name,
-                    p_max_retries=1,
+            quality_table = LayerUtils._resolve_quality_table(
+                catalog, schema_name, p_dataset_name
+            )
+            if quality_table is None:
+                logger.info(
+                    f"ℹ️  Quality gate table not yet created for {p_layer} "
+                    f"(schema='{schema_name}'). First sanity check execution "
+                    f"will initialize it. Allowing {p_dataset_name} to proceed."
                 )
-                if (
-                    tables_df is None
-                    or tables_df.filter(
-                        tables_df.tableName == "sc_sanity_check_results"
-                    ).count()
-                    == 0
-                ):
-                    fallback_table = f"{catalog}.sc_sanity_check_results"
-                    try:
-                        tables_df2 = LayerUtils._execute_spark_sql_with_retry(
-                            f"SHOW TABLES IN {catalog}",
-                            p_label=p_dataset_name,
-                            p_max_retries=1,
-                        )
+                return True
 
-                        catalog_has_table = (
-                            False
-                            if tables_df2 is None
-                            else tables_df2.filter(
-                                tables_df2.tableName == "sc_sanity_check_results"
-                            ).count()
-                            > 0
-                        )
-
-                        if catalog_has_table:
-                            quality_table = fallback_table
-                        else:
-                            logger.info(
-                                f"ℹ️  Quality gate table not yet created for "
-                                f"{p_layer} (schema='{schema_name}'). "
-                                f"First sanity check execution will initialize it. "
-                                f"Allowing {p_dataset_name} to proceed."
-                            )
-                            return True
-                    except Exception:
-                        logger.debug("Could not list tables in catalog")
-            except Exception:
-                quality_table = f"{catalog}.sc_sanity_check_results"
-
-            quality_df = LayerUtils._execute_spark_sql_with_retry(
+            query = (
                 f"SELECT nombre_dataset, _observ_end_dt, estado, severidad "
                 f"FROM {quality_table} "
                 f"WHERE estado = 'FAIL' AND severidad = 'CRITICAL' "
                 f"AND nombre_dataset IN ('{dataset_list}') "
                 f"AND _observ_end_dt >= '{p_start_date}' "
-                f"AND _observ_end_dt <= '{p_end_date}'",
-                p_label=p_dataset_name,
-                p_max_retries=2,
-                p_raise_on_failure=True,
+                f"AND _observ_end_dt <= '{p_end_date}'"
             )
-
-            critical_count = quality_df.count()
+            critical_count = LayerUtils._with_session_retry(
+                lambda: get_spark().sql(query).count(), p_dataset_name
+            )
 
             if critical_count > 0:
                 logger.error(
@@ -1702,109 +1136,18 @@ class LayerUtils:
             return False
 
     @staticmethod
-    def validate_single_dataset(
-        p_metadata: Dict[str, Any],
-        p_config_all: Dict[str, Any],
-        p_load_func,
-        p_validate_func,
-        p_log_func,
-        p_start_dt: Optional[str] = None,
-        p_end_dt: Optional[str] = None,
-    ) -> Tuple[Optional[DataFrame], Optional[Dict[str, Any]]]:
-        """Generic function to validate a single dataset with layer-specific log.
-
-        Args:
-            p_metadata: Metadata dict for the dataset.
-            p_config_all: Full configuration dict for all datasets.
-            p_load_func: Callable to load the dataset.
-            p_validate_func: Callable to validate the dataset.
-            p_log_func: Callable to log the summary results.
-            p_start_dt: Optional start date for filtering.
-            p_end_dt: Optional end date for filtering.
-
-        Returns:
-            Tuple of (results_dataframe, summary_dictionary)
-        """
-        dataset_name = p_metadata.get("dataset_name", "unknown")
-        config = LayerUtils.get_dataset_config(p_config_all, dataset_name)
-
-        if config and "_config_file" in config:
-            for key, val in p_config_all.items():
-                if val is config:
-                    dataset_name = key
-                    p_metadata["dataset_name"] = key
-                    break
-
-        try:
-            df = p_load_func(p_metadata, config, p_start_dt, p_end_dt)
-
-            if df is None:
-                return None, None
-
-            results_df, summary = p_validate_func(dataset_name, df, config)
-
-            if summary is not None:
-                p_log_func(logger, summary)
-            else:
-                logger.warning(f"{dataset_name}: validation produced no summary")
-
-            return results_df, summary
-
-        except Exception as e:
-            logger.error(f"❌ {dataset_name}: {e}", exc_info=True)
-            return None, {"dataset_name": dataset_name, "decision": "STOP"}
-
-    @staticmethod
-    def _get_layer_config_path(p_layer_name: str) -> str:
-        """Get default config path for a layer.
-
-        Args:
-            p_layer_name: Name of the layer (raw_data, data_cleaning, etc.)
-
-        Returns:
-            Full path to layer's configuration directory
-        """
-        base_dir = EnvironmentConfig.get_root_dir()
-        if p_layer_name == "raw_data":
-            return os.path.join(base_dir, p_layer_name, "src", "sanity_check", "conf")
-        else:
-            return os.path.join(base_dir, p_layer_name, "src")
-
-    @staticmethod
-    def create_layer_config_loader(
+    def load_layer_config(
         p_layer_name: str, p_domain_filter: Optional[str] = None
-    ) -> Any:
-        """Create a config loader function for a specific layer."""
+    ) -> Dict[str, Any]:
+        """Load a layer's sanity check configuration, optionally for one domain.
 
-        def load_config(
-            p_path: Optional[str] = None, p_domain_filter_override: Optional[str] = None
-        ) -> Dict[str, Any]:
-            filter_to_use = p_domain_filter_override or p_domain_filter
-            from data_engineering.core.sanity_check.utils import EnvironmentConfig
-
-            base_dir = EnvironmentConfig.get_root_dir()
-            layer_config_path = (
-                os.path.join(base_dir, p_layer_name, "src", "sanity_check", "conf")
-                if p_layer_name == "raw_data"
-                else os.path.join(base_dir, p_layer_name, "src")
-            )
-            path = p_path or layer_config_path
-            return LayerUtils.load_config(path, p_domain_filter=filter_to_use)
-
-        return load_config
-
-    @staticmethod
-    def create_layer_validator(p_layer_name: str) -> Any:
-        """Create a validate_dataset function for a specific layer."""
-
-        def validate_dataset(
-            p_dataset_name: str, p_df: DataFrame, p_config: Dict[str, Any]
-        ) -> Tuple[DataFrame, Any]:
-            return QualityEngine().validate(
-                p_df, p_dataset_name, p_config, p_layer=p_layer_name
-            )
-
-        return validate_dataset
+        raw_data keeps its YAML files in src/sanity_check/conf; the other layers
+        keep them next to each domain under src/.
+        """
+        layer_dir = os.path.join(EnvironmentConfig.get_root_dir(), p_layer_name, "src")
+        if p_layer_name == "raw_data":
+            layer_dir = os.path.join(layer_dir, "sanity_check", "conf")
+        return LayerUtils.load_config(layer_dir, p_domain_filter=p_domain_filter)
 
 
 @dataclass
@@ -1822,20 +1165,13 @@ class FlowExecutionContext:
     @classmethod
     def from_environment(cls) -> "FlowExecutionContext":
         """Build context from environment variables."""
-        workflow = os.getenv("workflow", "unknown")
-        flow_name = os.getenv("flow", "unknown")
-        node_name = os.getenv("node", None)
-        is_isolated = node_name is not None
-        domain = None
-        if is_isolated and node_name and "." in node_name:
-            domain = node_name.split(".")[0]
-
+        node_name = os.getenv("node")
         context = cls(
-            workflow=workflow,
-            flow_name=flow_name,
+            workflow=os.getenv("workflow", "unknown"),
+            flow_name=os.getenv("flow", "unknown"),
             node_name=node_name,
-            domain=domain,
-            is_isolated_execution=is_isolated,
+            domain=node_name.split(".")[0] if node_name and "." in node_name else None,
+            is_isolated_execution=node_name is not None,
             start_dt=os.getenv("start_dt"),
             end_dt=os.getenv("end_dt"),
         )

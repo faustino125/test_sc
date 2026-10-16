@@ -133,6 +133,10 @@ def execute_flows(p_flows, p_flow, p_sanity_check=False, p_nodes=None, workflow=
     2. Execute main flows for the workflow (with granular error handling per node)
     3. Execute sanity_check for the current workflow
 
+    A node blocked by the quality gate does not stop the other nodes, but it is
+    not silent either: once every node has run, the blocked ones are notified
+    and the execution fails so the orchestrator does not report success.
+
     Args:
         p_flows (list): List of flow names to run.
         p_flow (str): The type of flow.
@@ -141,7 +145,7 @@ def execute_flows(p_flows, p_flow, p_sanity_check=False, p_nodes=None, workflow=
         workflow (str): The workflow name
 
     Returns:
-        dict: Execution results with:
+        dict: Execution results (only when no node was blocked) with:
             - total_nodes: Total nodes to execute
             - successful: Number of successful nodes
             - failed: Number of failed nodes (QG failures)
@@ -150,7 +154,8 @@ def execute_flows(p_flows, p_flow, p_sanity_check=False, p_nodes=None, workflow=
             - details: Extended failure details
 
     Raises:
-        RuntimeError: If all nodes fail or critical system error occurs.
+        RuntimeError: If any node was blocked by the quality gate (after all
+            nodes ran) or a non-quality error occurs.
     """
     if p_sanity_check:
         from data_engineering.core.sanity_check.sanity_check_flow import (
@@ -164,17 +169,22 @@ def execute_flows(p_flows, p_flow, p_sanity_check=False, p_nodes=None, workflow=
 
         prepare_flow_sanity_checks(workflow, p_nodes, p_sanity_check)
 
+    successful_nodes = []
+    blocked_nodes = {}
+
     for flow in p_flows:
+        flow_name = flow.split(".")[-1]
         try:
             module = import_flow_module(flow)
-            flow_name = flow.split(".")[-1]
             os.environ["output_domain"] = flow.split(".")[3]
             os.environ["flow_key"] = flow_name.split("_flow")[0]
             execute_flow(module, flow_name, p_flow)
+            successful_nodes.append(flow_name)
         except RuntimeError as e:
             error_msg = str(e)
             if p_sanity_check and is_quality_gate_error(error_msg):
-                continue
+                print(f"⛔ [QUALITY GATE] {flow_name} blocked: {error_msg}")
+                blocked_nodes[flow_name] = error_msg
             else:
                 raise RuntimeError(f"❌ Sistema error en {flow}: {error_msg}")
 
@@ -198,7 +208,42 @@ def execute_flows(p_flows, p_flow, p_sanity_check=False, p_nodes=None, workflow=
 
             raise RuntimeError(f"Unexpected error en {flow}: {e}")
 
-        os.environ.pop("sanity_check_deferred", None)
+        finally:
+            os.environ.pop("sanity_check_deferred", None)
+
+    total_nodes = len(p_flows)
+    results = {
+        "total_nodes": total_nodes,
+        "successful": len(successful_nodes),
+        "failed": len(blocked_nodes),
+        "success_rate": (
+            round(100 * len(successful_nodes) / total_nodes, 2) if total_nodes else 100
+        ),
+        "nodes": {
+            "successful": successful_nodes,
+            "failed": list(blocked_nodes),
+        },
+        "details": blocked_nodes,
+    }
+
+    if blocked_nodes:
+        env_flow = os.getenv("env")
+        details = "\n".join(f"• {node}: {msg}" for node, msg in blocked_nodes.items())
+        if env_flow in ("dev", "prod"):
+            send_message_teams(
+                f"⛔ QUALITY GATE BLOCKED {len(blocked_nodes)}/{total_nodes} "
+                f"node(s)\n\n"
+                f"🚀 --env: {env_flow}\n\n"
+                f"🧩 --workflow: {workflow}\n\n"
+                f"📦 --flow: {p_flow}\n\n"
+                f"{details}"
+            )
+        raise RuntimeError(
+            f"{len(blocked_nodes)} of {total_nodes} node(s) were not persisted "
+            f"because the quality gate blocked them: {', '.join(blocked_nodes)}"
+        )
+
+    return results
 
 
 def validate_folders(p_base_module: str, p_folder: str):

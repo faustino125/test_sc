@@ -1,8 +1,10 @@
 import logging
 import os
+import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from pyspark.sql import DataFrame, SparkSession  # type: ignore
 
@@ -16,14 +18,29 @@ from data_engineering.core.sanity_check.base import (
 logger = logging.getLogger(__name__)
 
 ENV_VAR_ENVIRONMENT = "env"
-ENV_VAR_FLOW = "flow"
 ENV_VAR_END_DATE = "end_dt"
-ENV_VAR_START_DATE = "start_dt"
 DEFAULT_ENVIRONMENT = "dev"
 ENV_VAR_ROOT_DIR = "root_dir"
 DEFAULT_LAYER = "raw_data"
 
 _TIMEZONE_UTC_6 = timezone(timedelta(hours=-6))
+
+
+@contextmanager
+def timed_phase(p_label: str) -> Iterator[None]:
+    """Log how long a sanity check phase took, even when it raises.
+
+    Lines are prefixed with [SC-TIMING] so a run can be profiled by filtering
+    the logs, without the Spark UI.
+
+    Args:
+        p_label: Phase description (dataset, block, step)
+    """
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        logger.info(f"[SC-TIMING] {p_label}: {time.perf_counter() - start:.1f}s")
 
 
 def create_record(
@@ -87,29 +104,26 @@ def to_dataframe(
         observ_end_dt = end_dt_date.strftime("%Y-%m-%d")
     observ_start_dt = end_dt_date.replace(day=1)
 
-    records_for_df = []
-    for r in p_records:
-        r_dict = r.to_dict()
-        obs_start = r_dict.get("_observ_start_dt")
-        if obs_start:
-            if isinstance(obs_start, str):
-                obs_start_str = obs_start
-            else:
-                try:
-                    obs_start_str = obs_start.strftime("%Y-%m-%d")
-                except Exception:
-                    obs_start_str = observ_start_dt.strftime("%Y-%m-%d")
-        else:
-            obs_start_str = observ_start_dt.strftime("%Y-%m-%d")
+    default_start = observ_start_dt.strftime("%Y-%m-%d")
 
-        records_for_df.append(
-            {
-                **r_dict,
-                "fecha_ejecucion": r_dict.get("fecha_ejecucion") or now,
-                "_observ_end_dt": r_dict.get("_observ_end_dt") or observ_end_dt,
-                "_observ_start_dt": obs_start_str,
-            }
-        )
+    def _start_str(p_value: Any) -> str:
+        """Record start date as YYYY-MM-DD, or the default when unusable."""
+        if isinstance(p_value, str) and p_value:
+            return p_value
+        try:
+            return p_value.strftime("%Y-%m-%d") if p_value else default_start
+        except Exception:
+            return default_start
+
+    records_for_df = [
+        {
+            **r_dict,
+            "fecha_ejecucion": r_dict.get("fecha_ejecucion") or now,
+            "_observ_end_dt": r_dict.get("_observ_end_dt") or observ_end_dt,
+            "_observ_start_dt": _start_str(r_dict.get("_observ_start_dt")),
+        }
+        for r_dict in (r.to_dict() for r in p_records)
+    ]
 
     return p_spark.createDataFrame(records_for_df, schema=VALIDATION_RESULT_SCHEMA)
 
@@ -160,12 +174,7 @@ class ConfigLoader:
             Global settings dictionary with company, environment, catalog config
         """
         if p_root_dir is None:
-            try:
-                p_root_dir = EnvironmentConfig.get_root_dir()
-            except Exception:
-                p_root_dir = os.getenv(ENV_VAR_ROOT_DIR) or str(
-                    Path(__file__).resolve().parents[2]
-                )
+            p_root_dir = EnvironmentConfig.get_root_dir()
 
         settings_path = os.path.join(p_root_dir, "env", "base", "global_settings.yml")
         return ConfigLoader.load_yaml(
@@ -177,8 +186,6 @@ class EnvironmentConfig:
     """Unified access to environment variables with caching and validation."""
 
     _cache: Dict[str, str] = {}
-    ENV_VAR_ENVIRONMENT = "env"
-    DEFAULT_ENVIRONMENT = "dev"
 
     @classmethod
     def get_environment(cls) -> str:
@@ -193,10 +200,10 @@ class EnvironmentConfig:
         if "environment" in cls._cache:
             return cls._cache["environment"]
 
-        env = os.getenv(cls.ENV_VAR_ENVIRONMENT, cls.DEFAULT_ENVIRONMENT).strip()
+        env = os.getenv(ENV_VAR_ENVIRONMENT, DEFAULT_ENVIRONMENT).strip()
         if not env:
             raise ValueError(
-                f"Environment variable '{cls.ENV_VAR_ENVIRONMENT}' cannot be empty"
+                f"Environment variable '{ENV_VAR_ENVIRONMENT}' cannot be empty"
             )
 
         cls._cache["environment"] = env
@@ -207,23 +214,15 @@ class EnvironmentConfig:
         """Return the repository root directory.
 
         Preference order:
+        - Cached value (the first resolution wins for the whole process)
         - Environment variable `root_dir`
-        - Cached value
         - Auto-detected relative to this file
         """
-        if "root_dir" in cls._cache:
-            return cls._cache["root_dir"]
-
-        root_from_env = os.getenv(ENV_VAR_ROOT_DIR)
-        if root_from_env:
-            cls._cache["root_dir"] = root_from_env
-
-            return root_from_env
-
-        detected = str(Path(__file__).resolve().parents[2])
-        cls._cache["root_dir"] = detected
-
-        return detected
+        if "root_dir" not in cls._cache:
+            cls._cache["root_dir"] = os.getenv(ENV_VAR_ROOT_DIR) or str(
+                Path(__file__).resolve().parents[2]
+            )
+        return cls._cache["root_dir"]
 
     @classmethod
     def get_company(cls, p_root_dir: Optional[str] = None) -> str:

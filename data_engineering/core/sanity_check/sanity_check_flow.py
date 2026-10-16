@@ -7,24 +7,40 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from prefect import flow, get_run_logger, task  # type: ignore
 from pyspark import StorageLevel  # type: ignore
 from pyspark.sql import DataFrame  # type: ignore
+from pyspark.sql import functions as f  # type: ignore
 
+from data_engineering.core.sanity_check.base import ValidationRecord
 from data_engineering.core.sanity_check.engine import (
     FlowExecutionContext,
     LayerUtils,
-    QualityEngine,
-    df_is_empty,
+    get_spark,
 )
-from data_engineering.core.sanity_check.utils import DEFAULT_LAYER, ConfigLoader
+from data_engineering.core.sanity_check.grouped import (
+    GroupedValidationRunner,
+    RecordsSink,
+    TrackingSink,
+    dataset_error_record,
+    default_label_date,
+    emit_records_per_month,
+    label_month_range,
+    validate_dataset_grouped,
+)
+from data_engineering.core.sanity_check.utils import (
+    DEFAULT_LAYER,
+    ConfigLoader,
+    EnvironmentConfig,
+    timed_phase,
+    to_dataframe,
+)
 from data_engineering.core.utils import import_flow_module, send_message_teams
 
 logger = logging.getLogger(__name__)
 
 _UPSTREAM_MAP = {
-    "data_cleaning": ["raw_data"],
-    "data_transformation": ["data_cleaning"],
-    "data_integration": ["data_transformation"],
+    layer: [upstream]
+    for layer, upstream in LayerUtils.LAYER_DEPENDENCIES.items()
+    if upstream
 }
-_PRE_SAVE_MONTH_THRESHOLD = 3
 FLOW_NAME_SUFFIX = "_flow"
 _DEPENDENCY_CACHE: Dict[str, Optional[Set[str]]] = {}
 _ENV_MUTATION_LOCK = threading.Lock()
@@ -34,6 +50,9 @@ def execute_sanity_check(
     p_layer_name: str, p_nodes: list = None, p_is_upstream: bool = False
 ) -> None:
     """Execute sanity check for a workflow, optionally traversing upstream dependencies.
+
+    The `node` and `flow` environment variables are set for the duration of the
+    check and restored afterwards, so the caller's context is left untouched.
 
     Args:
         p_layer_name: Layer name to validate (e.g. 'raw_data', 'data_cleaning').
@@ -46,41 +65,45 @@ def execute_sanity_check(
     if p_is_upstream:
         for upstream in _UPSTREAM_MAP.get(p_layer_name, []):
             execute_sanity_check(upstream, p_nodes, p_is_upstream=False)
-            print(f"{upstream} sanity_check PASSED\n")
+            logger.info(f"{upstream} sanity_check PASSED")
         return
 
-    try:
+    with _ENV_MUTATION_LOCK:
+        saved_env = {k: os.getenv(k) for k in ("node", "flow")}
         if p_nodes:
             os.environ["node"] = p_nodes[0]
         else:
             os.environ.pop("node", None)
+        os.environ["flow"] = p_layer_name
 
+    try:
         module_path = (
             f"data_engineering.{p_layer_name}.src.sanity_check.sanity_check_validation"
         )
         sanity_module = import_flow_module(module_path)
 
-        if hasattr(sanity_module, "sanity_check_flow"):
-            os.environ["flow"] = p_layer_name
-            _node_arg = p_nodes[0] if p_nodes else None
-            getattr(sanity_module, "sanity_check_flow")(p_node=_node_arg)
-            os.environ["sanity_check_executed"] = "1"
-        else:
+        if not hasattr(sanity_module, "sanity_check_flow"):
             raise AttributeError(f"sanity_check_flow not found in {module_path}")
+
+        _node_arg = p_nodes[0] if p_nodes else None
+        getattr(sanity_module, "sanity_check_flow")(p_node=_node_arg)
+        os.environ["sanity_check_executed"] = "1"
 
     except Exception as e:
         env_flow = os.getenv("env")
-        error_type = "UPSTREAM SANITY CHECK" if p_is_upstream else "SANITY CHECK"
-        error_msg = f"\u2757\ufe0f {error_type} FAILED ({p_layer_name})\nError: {e}"
-
-        from data_engineering.core.sanity_check.sanity_check_flow import (
-            is_quality_gate_error,
-        )
+        error_msg = f"\u2757\ufe0f SANITY CHECK FAILED ({p_layer_name})\nError: {e}"
 
         if env_flow in ("dev", "prod") and not is_quality_gate_error(str(e)):
             send_message_teams(error_msg)
 
-        raise RuntimeError(f"\u274c {error_type} failed for {p_layer_name}: {e}")
+        raise RuntimeError(f"\u274c SANITY CHECK failed for {p_layer_name}: {e}") from e
+    finally:
+        with _ENV_MUTATION_LOCK:
+            for k, v in saved_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
 
 _QUALITY_GATE_ERROR_PATTERN = re.compile(
@@ -120,23 +143,140 @@ def prepare_flow_sanity_checks(
     """
     os.environ.pop("sanity_check_executed", None)
 
-    is_isolated_mode = p_nodes is not None
-
-    if not p_sanity_check or not p_layer_name:
-        os.environ.pop("sanity_check_deferred", None)
-        return
-
-    if is_isolated_mode:
+    # Disabled, unknown layer or isolated mode (p_nodes given): nothing deferred.
+    if not p_sanity_check or not p_layer_name or p_nodes is not None:
         os.environ.pop("sanity_check_deferred", None)
         return
 
     if p_layer_name in ("data_cleaning", "data_transformation", "data_integration"):
         os.environ["sanity_check_deferred"] = "1"
     elif p_layer_name in _UPSTREAM_MAP:
-        print(
+        logger.info(
             f"[PER-NODE QG] '{p_layer_name}': solo QG sobre resultados upstream "
             "existentes. Sin ejecución de SC upstream."
         )
+
+
+def _with_persisted_observation_columns(
+    p_df: DataFrame, p_partition_col: Optional[str]
+) -> DataFrame:
+    """Add the observation columns save_delta_file_task derives before writing.
+
+    Mirrors save_data_flow.save_delta_file_task so pre-save validation sees the
+    same `_observ_start_dt` / `_observ_end_dt` that will be persisted (configs
+    commonly check them for nulls).
+
+    Args:
+        p_df: Staged DataFrame
+        p_partition_col: Partition column used by save_delta_file_task
+
+    Returns:
+        DataFrame with the derived observation columns (validation only).
+    """
+    if not p_partition_col or p_partition_col not in p_df.columns:
+        return p_df
+    if "_observ_start_dt" not in p_df.columns:
+        p_df = p_df.withColumn(
+            "_observ_start_dt", f.trunc(f.col(p_partition_col), "month")
+        )
+    if p_partition_col != "_observ_end_dt":
+        p_df = p_df.withColumn("_observ_end_dt", f.last_day(f.col(p_partition_col)))
+    return p_df
+
+
+def _results_sink(p_layer: str) -> RecordsSink:
+    """Build a sink that persists a block of records in the results table."""
+
+    def _sink(p_records: List[ValidationRecord]) -> None:
+        validation_results(to_dataframe(get_spark(), p_records), layer=p_layer)
+
+    return _sink
+
+
+def _run_pre_save_validation(
+    p_df: DataFrame,
+    p_table_name: str,
+    p_config: Dict[str, Any],
+    p_layer: str,
+    p_date_col: Optional[str],
+    p_end_date: Optional[str],
+) -> List[Dict[str, Any]]:
+    """Validate every staged row month-grouped and persist the results.
+
+    Only the columns the checks read are kept, and by default they are
+    materialized once with DISK_ONLY: the aggregate pass and the duplicate
+    blocks then read that copy instead of recomputing the whole transformation
+    each time, without using executor memory. Set the environment variable
+    `sanity_check_pre_save_cache=none` to recompute instead (no local disk).
+
+    Months come from the data itself; rows with a null date are validated as
+    their own group, stamped with end_dt.
+
+    Args:
+        p_df: Staged DataFrame (with derived observation columns)
+        p_table_name: Dataset name used in the result records
+        p_config: Dataset validator configuration
+        p_layer: Active layer (e.g. 'data_cleaning')
+        p_date_col: Date column that attributes rows to months (may be None)
+        p_end_date: end_dt from the environment (stamp for rows without month)
+
+    Returns:
+        Summaries of the months whose decision is STOP.
+    """
+    required_cols = LayerUtils._extract_columns_for_caching(
+        p_config, p_date_col, p_df.columns
+    )
+    if len(required_cols) < len(p_df.columns):
+        logger.info(
+            f"[PRE-SAVE SC] '{p_table_name}': validating "
+            f"{len(required_cols)}/{len(p_df.columns)} required columns."
+        )
+        validation_df = p_df.select(*required_cols)
+    else:
+        validation_df = p_df
+
+    cache_mode = os.getenv("sanity_check_pre_save_cache", "disk").strip().lower()
+    cached = cache_mode != "none"
+    if cached:
+        validation_df = validation_df.persist(StorageLevel.DISK_ONLY)
+
+    label_date = p_end_date or default_label_date()
+    tracking = TrackingSink(_results_sink(p_layer))
+    try:
+        with timed_phase(f"[PRE-SAVE SC] {p_table_name} total"):
+            try:
+                summaries = GroupedValidationRunner(p_layer).run(
+                    validation_df,
+                    p_table_name,
+                    p_config,
+                    p_date_col,
+                    None,
+                    tracking,
+                    p_null_month_label=label_date,
+                )
+            except Exception as e:
+                if tracking.failed:
+                    raise
+                logger.error(
+                    f"[PRE-SAVE SC] Error validating '{p_table_name}': {e}",
+                    exc_info=True,
+                )
+                # Always recorded, even if this month was already written:
+                # the staged data must be blocked.
+                summaries = emit_records_per_month(
+                    p_table_name,
+                    [dataset_error_record(p_table_name, "VALIDATION_ERROR", e)],
+                    [label_month_range(label_date)],
+                    1,
+                    tracking,
+                )
+    finally:
+        if cached:
+            validation_df.unpersist()
+
+    stops = [s for s in summaries if s.get("decision") == "STOP"]
+    LayerUtils._send_stop_notification(p_table_name, stops)
+    return stops
 
 
 def pre_save_quality_checks(
@@ -147,6 +287,11 @@ def pre_save_quality_checks(
     p_date_col: Optional[str] = None,
 ) -> None:
     """Run sanity check and quality gate validations before persisting a dataset.
+
+    When the dataset has a sanity check config, the staged data is validated
+    and that fresh result is authoritative: the historical quality gate is
+    not consulted, since its rows describe the data being replaced. Without a
+    config, the historical gate is the only control applied.
 
     Args:
         p_df: The DataFrame about to be persisted.
@@ -167,141 +312,62 @@ def pre_save_quality_checks(
     _, table_name = _get_prefixed_dataset(os.getenv("output_domain"), p_file_name)
     start_date = os.getenv("start_dt")
     end_date = os.getenv("end_dt")
-    load_config = LayerUtils.create_layer_config_loader(p_data_subfolder)
-    config_all = load_config(p_domain_filter_override=p_output_domain)
+    config_all = LayerUtils.load_layer_config(p_data_subfolder, p_output_domain)
+    config = LayerUtils.get_dataset_config(config_all, table_name)
 
-    if config_all:
-        config = LayerUtils.get_dataset_config(config_all, table_name)
-        if config:
-            month_ranges = LayerUtils._resolve_month_ranges(start_date, end_date)
-            engine = QualityEngine()
-            stop_summaries = []
+    if config:
+        date_col = p_date_col or LayerUtils._resolve_date_col(config, {})
+        stop_summaries = _run_pre_save_validation(
+            _with_persisted_observation_columns(p_df, p_date_col),
+            table_name,
+            config,
+            p_data_subfolder,
+            date_col,
+            end_date,
+        )
 
-            def _pre_save_validate(p_name, p_month_df, p_cfg):
-                return engine.validate(
-                    p_month_df, p_name, p_cfg, p_layer=p_data_subfolder
-                )
-
-            date_col_to_use = p_date_col or LayerUtils._resolve_date_col(config, {})
-            required_cols = LayerUtils._extract_columns_for_caching(
-                config, date_col_to_use, p_df.columns
+        if stop_summaries:
+            total_critical = sum(s.get("critical_failures", 0) for s in stop_summaries)
+            total_errors = sum(s.get("validator_errors", 0) for s in stop_summaries)
+            failed_months = [str(s.get("month", "unknown")) for s in stop_summaries]
+            raise RuntimeError(
+                f"Data persistence blocked: pre-save sanity check failed for "
+                f"'{table_name}' — {total_critical} CRITICAL failure(s), "
+                f"{total_errors} validator error(s) in months: "
+                f"{', '.join(failed_months)}. Staged data will be discarded."
             )
 
-            if len(required_cols) < len(p_df.columns):
-                logger.info(
-                    f"[PRE-SAVE SC] '{table_name}': optimizing validation by selecting "
-                    f"{len(required_cols)}/{len(p_df.columns)} required columns."
-                )
-                validation_df = p_df.select(*required_cols)
-            else:
-                validation_df = p_df
-
-            if not p_date_col:
-                full_df = validation_df.persist(StorageLevel.MEMORY_AND_DISK)
-                try:
-                    results_df, summary = engine.validate(
-                        full_df, table_name, config, p_layer=p_data_subfolder
-                    )
-                    if results_df is not None and not df_is_empty(results_df):
-                        validation_results(results_df, layer=p_data_subfolder)
-                    if summary.get("decision") == "STOP":
-                        summary["month"] = end_date or "ALL"
-                        stop_summaries.append(summary)
-                finally:
-                    full_df.unpersist()
-            else:
-                yearly_chunks = LayerUtils._group_month_ranges_by_year(month_ranges)
-
-                for year_chunk in yearly_chunks:
-                    chunk_start = year_chunk[0][0]
-                    chunk_end = year_chunk[-1][1]
-
-                    logger.info(
-                        f"[PRE-SAVE SC] Processing year chunk: {chunk_start[:4]} "
-                        f"({len(year_chunk)} months)"
-                    )
-
-                    chunk_df = LayerUtils._apply_date_filter(
-                        validation_df,
-                        p_date_col,
-                        chunk_start,
-                        chunk_end,
-                        table_name,
-                    ).persist(StorageLevel.MEMORY_AND_DISK)
-
-                    batch_results = []
-                    try:
-                        (
-                            batch_results,
-                            chunk_stops,
-                        ) = LayerUtils._validate_df_over_months(
-                            chunk_df,
-                            table_name,
-                            config,
-                            _pre_save_validate,
-                            p_date_col,
-                            year_chunk,
-                        )
-                        stop_summaries.extend(chunk_stops)
-
-                        if batch_results:
-                            consolidated_batch = LayerUtils.consolidate_results(
-                                batch_results
-                            )
-                            validation_results(
-                                consolidated_batch, layer=p_data_subfolder
-                            )
-                            logger.info(
-                                f"[PRE-SAVE SC] Persisted results {chunk_start[:4]} "
-                                f"({len(batch_results)} results)."
-                            )
-
-                    finally:
-                        chunk_df.unpersist()
-                        for df in batch_results:
-                            try:
-                                df.unpersist()
-                            except Exception:
-                                pass
-                        batch_results.clear()
-
-            if stop_summaries:
-                total_critical = sum(
-                    s.get("critical_failures", 0) for s in stop_summaries
-                )
-                failed_months = [s.get("month", "unknown") for s in stop_summaries]
-                raise RuntimeError(
-                    f"Data persistence blocked: pre-save sanity check failed for "
-                    f"'{table_name}' — {total_critical} CRITICAL failure(s) in "
-                    f"months: {', '.join(failed_months)}. Staged data will be "
-                    f"discarded."
-                )
-
-            logger.info(
-                f"[PRE-SAVE SC] Validation PASSED for '{table_name}' "
-                f"({len(month_ranges)} month(s)). Proceeding to persist."
-            )
-
-    if start_date and end_date:
         logger.info(
-            f"[PRE-SAVE SC] Checking quality gate for '{table_name}' "
-            f"({start_date} \u2192 {end_date})..."
+            f"[PRE-SAVE SC] Validation PASSED for '{table_name}'. Proceeding to "
+            f"persist."
+        )
+
+    elif start_date and end_date:
+        logger.info(
+            f"[PRE-SAVE SC] No sanity check config for '{table_name}'; checking "
+            f"quality gate history ({start_date} → {end_date})..."
         )
         if not LayerUtils.check_quality_gate(
             table_name, start_date, end_date, p_layer=p_data_subfolder
         ):
             logger.error(
                 f"[PRE-SAVE SC] Quality Gate FAILED for '{table_name}' "
-                f"({start_date} \u2192 {end_date}). CRITICAL failures detected."
+                f"({start_date} → {end_date}). CRITICAL failures detected."
             )
             raise RuntimeError(
                 f"Blocked by quality gate: "
-                f"{table_name} {start_date} \u2192 {end_date}"
+                f"{table_name} {start_date} → {end_date}"
             )
-        print(
+        logger.info(
             f"[PRE-SAVE SC] Quality Gate PASSED for '{table_name}' "
-            f"({start_date} \u2192 {end_date}). Safe to persist."
+            f"({start_date} → {end_date}). Safe to persist."
         )
+    else:
+        logger.warning(
+            f"[PRE-SAVE SC] No sanity check config for '{table_name}' and no "
+            f"start_dt/end_dt; persisting without quality checks."
+        )
+
     os.environ["sanity_check_executed"] = "1"
 
 
@@ -323,35 +389,18 @@ def check_quality_gate_task(
     Raises:
         RuntimeError: When the dataset has CRITICAL quality failures (blocks flow).
     """
-    _logger = get_run_logger()
-
-    try:
-        passed = LayerUtils.check_quality_gate(
-            p_dataset_name, p_start_date, p_end_date, p_layer=p_layer
-        )
-        if not passed:
-            raise RuntimeError(
-                f"Quality Gate FAILED: {p_dataset_name} has CRITICAL failures "
-                f"in {p_layer} layer for {p_start_date} \u2192 {p_end_date}"
-            )
-        _logger.info(f"[QG PASSED] {p_dataset_name} passed quality gate in {p_layer}")
-    except RuntimeError:
-        raise
-    except Exception as e:
-        if LayerUtils._is_missing_table_error(str(e)):
-            _logger.info(
-                f"[TABLE NOT FOUND] Quality gate table not yet created for {p_layer}. "
-                f"Allowing {p_dataset_name} to proceed."
-            )
-            return
-
-        _logger.error(
-            f"[QG ERROR] Could not verify quality gate for {p_dataset_name} "
-            f"in {p_layer}. Blocking by default. Error: {e}"
-        )
+    # check_quality_gate handles its own errors (it fails closed), so only
+    # its result needs to be turned into a blocking error.
+    if not LayerUtils.check_quality_gate(
+        p_dataset_name, p_start_date, p_end_date, p_layer=p_layer
+    ):
         raise RuntimeError(
-            f"Quality Gate verification error for {p_dataset_name} in {p_layer}: {e}"
-        ) from e
+            f"Quality Gate FAILED: {p_dataset_name} has CRITICAL failures "
+            f"in {p_layer} layer for {p_start_date} \u2192 {p_end_date}"
+        )
+    get_run_logger().info(
+        f"[QG PASSED] {p_dataset_name} passed quality gate in {p_layer}"
+    )
 
 
 def _get_prefixed_dataset(
@@ -371,8 +420,6 @@ def _get_prefixed_dataset(
         output_domain = node_name.split(".")[0]
 
     try:
-        from data_engineering.core.sanity_check.utils import EnvironmentConfig
-
         prefix_path = os.path.join(
             EnvironmentConfig.get_root_dir(), "env", "base", "prefixes.yml"
         )
@@ -387,11 +434,7 @@ def _get_prefixed_dataset(
     return output_dataset, prefixed_output
 
 
-def validation_results(
-    df_results: DataFrame,
-    layer: str = DEFAULT_LAYER,
-    **kwargs,
-) -> None:
+def validation_results(df_results: DataFrame, layer: str = DEFAULT_LAYER) -> None:
     """
     Persist validation results using unified save_data_flow.
 
@@ -430,37 +473,30 @@ def validation_results(
                     os.environ.pop(k, None)
 
 
-def _load_and_parse_io_config(
-    io_config_path: str, node_name: str, layer: str
-) -> Optional[Tuple[dict, str]]:
+def _load_flow_io_config(io_config_path: str, node_name: str) -> Optional[dict]:
     """
-    Load and parse io_config.yml for a node.
+    Load a node's entry from io_config.yml.
 
     Args:
         io_config_path: Path to the io_config.yml file
-        node_name: Name of the node
-        layer: Data layer
+        node_name: Name of the node ('<domain>.<flow>_flow')
 
     Returns:
-        Tuple containing flow configuration and io_key, or None if not found
-
+        The flow configuration if it has an Input section, else None.
     """
     io_config = ConfigLoader.load_yaml(
         io_config_path, "io_config.yml", p_fallback_value={}
     )
-    if not io_config:
-        return None
-
-    domain, flow_name = node_name.split(".", 1)
+    flow_name = node_name.split(".", 1)[1]
     io_key = (
         flow_name.replace(FLOW_NAME_SUFFIX, "")
         if flow_name.endswith(FLOW_NAME_SUFFIX)
         else flow_name
     )
-    flow_config = io_config.get(io_key) or {}
+    flow_config = io_config.get(io_key) if io_config else None
 
-    if flow_config and isinstance(flow_config, dict) and "Input" in flow_config:
-        return flow_config, io_key
+    if isinstance(flow_config, dict) and "Input" in flow_config:
+        return flow_config
     return None
 
 
@@ -504,36 +540,28 @@ def resolve_node_dependencies(
         Set of dataset names the node depends on, or None if not found
     """
     cache_key = f"{layer}:{node_name}"
-    if cache_key in _DEPENDENCY_CACHE:
-        return _DEPENDENCY_CACHE[cache_key]
+    if cache_key not in _DEPENDENCY_CACHE:
+        _DEPENDENCY_CACHE[cache_key] = _compute_node_dependencies(node_name, layer)
+    return _DEPENDENCY_CACHE[cache_key]
 
+
+def _compute_node_dependencies(node_name: str, layer: str) -> Optional[Set[str]]:
+    """Uncached body of resolve_node_dependencies (None on any problem)."""
     if "." not in node_name:
-        _DEPENDENCY_CACHE[cache_key] = None
         return None
-
     try:
-        from data_engineering.core.sanity_check.utils import EnvironmentConfig
-
         base_dir = EnvironmentConfig.get_root_dir()
-        io_config_path = os.path.join(base_dir, layer, "conf", "io_config.yml")
-
-        config_result = _load_and_parse_io_config(io_config_path, node_name, layer)
-        if config_result is None:
-            _DEPENDENCY_CACHE[cache_key] = None
+        flow_config = _load_flow_io_config(
+            os.path.join(base_dir, layer, "conf", "io_config.yml"), node_name
+        )
+        if flow_config is None:
             return None
 
-        flow_config, io_key = config_result
         actual_datasets = _resolve_abstract_inputs_to_datasets(
             flow_config["Input"], layer, base_dir
         )
-        actual_datasets = _add_output_datasets(
-            layer, flow_config, actual_datasets, node_name
-        )
-
-        _DEPENDENCY_CACHE[cache_key] = actual_datasets
-        return actual_datasets
+        return _add_output_datasets(layer, flow_config, actual_datasets, node_name)
     except Exception:
-        _DEPENDENCY_CACHE[cache_key] = None
         return None
 
 
@@ -555,10 +583,6 @@ def _resolve_abstract_inputs_to_datasets(
     data_catalog = ConfigLoader.load_yaml(
         catalog_path, "data_catalog.yml", p_fallback_value={"Input": {}}
     )
-    if not data_catalog:
-        logger.warning("Using abstract names as-is (no data_catalog.yml)")
-        return set(abstract_inputs)
-
     catalog_inputs = data_catalog.get("Input", {})
     actual_datasets = set()
 
@@ -605,25 +629,18 @@ def create_sanity_check_flow(
         A Prefect @flow decorated function ready to execute.
     """
 
-    _load_config = LayerUtils.create_layer_config_loader(layer_name)
-    _validate_dataset = LayerUtils.create_layer_validator(layer_name)
-
     def _get_filtered_datasets(config_all: Dict[str, Any], context) -> list:
         """Get filtered list of datasets based on execution context."""
         configured_datasets = list(config_all.keys())
 
         if not (context.is_isolated_execution and os.getenv("node")):
             return configured_datasets
-
-        mapping_layer = (
-            dependency_mapping.get(os.getenv("workflow"), layer_name)
-            if dependency_mapping
-            else layer_name
-        )
-
         if layer_name in ("data_integration", "data_transformation"):
             return configured_datasets
 
+        mapping_layer = (dependency_mapping or {}).get(
+            os.getenv("workflow"), layer_name
+        )
         node_dependencies = resolve_node_dependencies(
             os.getenv("node"), layer=mapping_layer
         )
@@ -671,39 +688,32 @@ def create_sanity_check_flow(
     def process_dataset_task(
         meta: Dict,
         config_all: Dict,
-        start_dt: str,
-        end_dt: str,
-    ) -> Tuple[Optional[DataFrame], Dict]:
-        """Orchestrate validation of a single dataset.
+        month_ranges: List[Tuple[str, str]],
+    ) -> Dict[str, Any]:
+        """Validate one dataset for all months, persisting results per block.
 
         Args:
             meta: Metadata dictionary for the dataset.
             config_all: Full configuration dictionary for the layer.
-            start_dt: Start date for validation.
-            end_dt: End date for validation.
+            month_ranges: Months to validate.
+
+        Returns:
+            Dict with the STOP month summaries ("stops") and the number of
+            result writes ("writes").
         """
-
-        result_df, summary = LayerUtils.validate_single_dataset(
-            meta,
-            config_all,
-            loader_func,
-            _validate_dataset,
-            LayerUtils.log_summary,
-            start_dt,
-            end_dt,
+        sink = TrackingSink(_results_sink(layer_name))
+        stops = validate_dataset_grouped(
+            meta, config_all, loader_func, layer_name, month_ranges, sink
         )
-
-        summary = summary or {"decision": "SKIP"}
-
-        return result_df, summary
+        return {"stops": stops, "writes": sink.calls}
 
     def _run_dataset_validation(
         datasets_metadata: List[Dict[str, Any]],
         config_all: Dict[str, Any],
-        p_start_dt: str,
-        p_end_dt: str,
-    ) -> Tuple[Optional[DataFrame], List[Dict]]:
-        """Run dataset validation, choosing strategy based on month range size.
+        p_start_dt: Optional[str],
+        p_end_dt: Optional[str],
+    ) -> List[Dict]:
+        """Validate every dataset month-grouped, whatever the range size.
 
         Args:
             datasets_metadata: List of metadata for all datasets.
@@ -712,27 +722,22 @@ def create_sanity_check_flow(
             p_end_dt: Validation end date.
 
         Returns:
-            Tuple of (results_dataframe, list_of_critical_failures).
+            Summaries of the months whose decision is STOP.
         """
         month_ranges = LayerUtils._resolve_month_ranges(p_start_dt, p_end_dt)
+        critical_fails: List[Dict] = []
+        writes = 0
 
-        if len(month_ranges) > _PRE_SAVE_MONTH_THRESHOLD:
-            return LayerUtils.process_all_datasets_with_cache(
-                datasets_metadata,
-                config_all,
-                loader_func,
-                _validate_dataset,
-                p_start_dt,
-                p_end_dt,
-            )
-        else:
-            return LayerUtils.process_all_datasets(
-                datasets_metadata,
-                config_all,
-                process_dataset_task,
-                p_start_dt,
-                p_end_dt,
-            )
+        with timed_phase(f"[{layer_name}] sanity check flow"):
+            for meta in datasets_metadata:
+                outcome = process_dataset_task(meta, config_all, month_ranges)
+                critical_fails.extend(outcome["stops"])
+                writes += outcome["writes"]
+
+        if writes == 0:
+            # Nothing was validated: still initialize the results table.
+            validation_results(to_dataframe(get_spark(), []), layer=layer_name)
+        return critical_fails
 
     @flow(name="sanity_check_flow")
     def sanity_check_flow(p_node: Optional[str] = None) -> None:
@@ -751,7 +756,7 @@ def create_sanity_check_flow(
                 raise ValueError("Isolated execution requires domain to be set")
 
             # 2. Load and filter configuration
-            config_all = _load_config(p_domain_filter_override=context.domain)
+            config_all = LayerUtils.load_layer_config(layer_name, context.domain)
             if not config_all:
                 logger.warning(
                     f"[{layer_name}] No sanity check config found "
@@ -781,16 +786,14 @@ def create_sanity_check_flow(
             p_start_dt = os.getenv("start_dt")
             p_end_dt = os.getenv("end_dt")
 
-            df_results, critical_fails = _run_dataset_validation(
+            critical_fails = _run_dataset_validation(
                 datasets_metadata, config_all, p_start_dt, p_end_dt
             )
 
-            validation_results(df_results, layer=layer_name)
-
             if critical_fails:
-                failed_datasets = [
-                    s.get("dataset_name", "unknown") for s in critical_fails
-                ]
+                failed_datasets = sorted(
+                    {s.get("dataset_name", "unknown") for s in critical_fails}
+                )
                 raise RuntimeError(
                     f"Critical failures in {layer_name} datasets: "
                     f"{', '.join(failed_datasets)}"
