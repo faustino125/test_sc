@@ -1,10 +1,9 @@
-import importlib
 import logging
 import os
 import re
 import threading
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 
@@ -12,91 +11,29 @@ from databricks.connect import DatabricksSession  # type: ignore
 from pyspark.sql import DataFrame  # type: ignore
 from pyspark.sql import functions as f  # type: ignore
 
-from data_engineering.core.sanity_check.base import BaseValidator
+from data_engineering.core.sanity_check.base import BaseValidator, find_column
 from data_engineering.core.sanity_check.standard_validators import (
     StandardConsistencyValidator,
     StandardDimensionalValidator,
     StandardDuplicatesValidator,
     StandardNullValuesValidator,
 )
-from data_engineering.core.sanity_check.utils import _TIMEZONE_UTC_6, EnvironmentConfig
-from data_engineering.core.utils import load_yaml_file, send_message_teams
+from data_engineering.core.sanity_check.utils import (
+    _TIMEZONE_UTC_6,
+    GLOBAL_SETTINGS_FILE,
+    PREFIXES_FILE,
+    config_path,
+    get_catalog_name,
+    get_environment,
+    get_root_dir,
+    load_yaml_file,
+)
+from data_engineering.core.utils import send_message_teams
 
 logger = logging.getLogger(__name__)
 
 _SPARK_SESSION: Optional[DatabricksSession] = None
 _SPARK_SESSION_LOCK: threading.Lock = threading.Lock()
-_SQL_TOKEN_SKIPLIST = frozenset(
-    {
-        "and",
-        "or",
-        "not",
-        "in",
-        "is",
-        "null",
-        "true",
-        "false",
-        "between",
-        "like",
-        "rlike",
-        "case",
-        "when",
-        "then",
-        "else",
-        "end",
-        "as",
-        "on",
-        "exists",
-        "distinct",
-        "cast",
-        "coalesce",
-        "nullif",
-        "asc",
-        "desc",
-        "interval",
-        "current_date",
-        "current_timestamp",
-        "date",
-        "timestamp",
-        "ilike",
-        "regexp",
-        "div",
-    }
-)
-
-
-_SQL_STRING_LITERAL = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"")
-# Backticked names, or bare identifiers that are not part of a number and
-# not followed by "(" (function calls).
-_SQL_IDENTIFIER = re.compile(
-    r"`([^`]+)`|(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_.]*)\b(?!\s*\()"
-)
-
-
-def _rule_identifiers(p_condition: str) -> List[str]:
-    """Lower-cased identifiers a SQL condition references (columns, maybe).
-
-    String literals, function calls and SQL keywords are ignored.
-    """
-    tokens = []
-    without_literals = _SQL_STRING_LITERAL.sub(" ", p_condition)
-    for quoted, plain in _SQL_IDENTIFIER.findall(without_literals):
-        token = (quoted or plain).strip().rstrip(".").lower()
-        if token and token not in _SQL_TOKEN_SKIPLIST:
-            tokens.append(token)
-    return tokens
-
-
-def _list(p_value: Any) -> list:
-    """The value if it is a list, else an empty list."""
-    return p_value if isinstance(p_value, list) else []
-
-
-def _str_list(p_value: Any) -> List[str]:
-    """A column name or list of names as a list of strings (others dropped)."""
-    if isinstance(p_value, str):
-        return [p_value]
-    return [v for v in _list(p_value) if isinstance(v, str)]
 
 
 def get_spark() -> DatabricksSession:
@@ -117,10 +54,14 @@ def get_spark() -> DatabricksSession:
 
 
 def reset_spark() -> None:
-    """Drop the cached session so the next get_spark() opens a new one.
+    """Open a new session for the sanity check after a session error.
 
-    The old session is stopped so getOrCreate() does not hand back the same
-    broken default session.
+    The old session is not stopped: load_data_flow and save_data_flow keep
+    their own reference to the default session, and stopping it would make
+    every later read and results write of the run fail. A new session is
+    created instead, since getOrCreate() would hand back the same default one.
+    If this Databricks Connect version cannot create one, the old session is
+    stopped so the next get_spark() opens a fresh default session.
     """
     global _SPARK_SESSION
 
@@ -128,15 +69,19 @@ def reset_spark() -> None:
         old_session = _SPARK_SESSION
         _SPARK_SESSION = None
 
-    if old_session is not None:
-        try:
-            old_session.stop()
-        except Exception as e:
-            logger.debug(f"Error stopping stale Spark session: {e}")
+    try:
+        new_session = DatabricksSession.builder.create()
+    except Exception as e:
+        logger.warning(f"Could not create a new Spark session ({e}); stopping the old one")
+        if old_session is not None:
+            try:
+                old_session.stop()
+            except Exception as stop_error:
+                logger.debug(f"Error stopping stale Spark session: {stop_error}")
+        return
 
-
-_GLOBAL_REGISTRY: Optional["ValidatorRegistry"] = None
-_REGISTRY_LOCK: threading.Lock = threading.Lock()
+    with _SPARK_SESSION_LOCK:
+        _SPARK_SESSION = new_session
 
 STANDARD_VALIDATORS: Dict[str, Type[BaseValidator]] = {
     "duplicates": StandardDuplicatesValidator,
@@ -145,144 +90,40 @@ STANDARD_VALIDATORS: Dict[str, Type[BaseValidator]] = {
     "consistency": StandardConsistencyValidator,
 }
 
-# Optional registry class each layer may define in
-# data_engineering.<layer>.src.sanity_check.validators
-_LAYER_REGISTRY_CLASSES = {
-    "raw_data": "RawValidatorRegistry",
-    "data_cleaning": "CleaningValidatorRegistry",
-    "data_transformation": "TransformationValidatorRegistry",
-    "data_integration": "IntegrationDataValidatorRegistry",
-}
 
+def build_validators(p_config: Dict[str, Any]) -> List[BaseValidator]:
+    """Instantiate the enabled standard validators of a dataset config.
 
-def _initialize_layer_validators(p_registry: "ValidatorRegistry") -> None:
-    """Register the standard validators for every layer, then each layer's own.
-
-    A layer's registry can add new types or override a standard one without
-    making the other standard types disappear.
-
-    Args:
-        p_registry: Central validator registry to populate
+    An enabled type that is not a standard validator is reported and skipped.
     """
-    for layer_name, registry_class_name in _LAYER_REGISTRY_CLASSES.items():
-        for validator_type, validator_class in STANDARD_VALIDATORS.items():
-            p_registry.register_validator(
-                validator_type, validator_class, p_layer=layer_name
-            )
-
-        module_path = f"data_engineering.{layer_name}.src.sanity_check.validators"
-        try:
-            module = importlib.import_module(module_path)
-        except ModuleNotFoundError as e:
-            if e.name and module_path.startswith(e.name):
-                logger.debug(f"No layer-specific validators module for {layer_name}")
-            else:
-                logger.error(
-                    f"Layer validators module {module_path} failed to import: {e}"
-                )
-            continue
-        except Exception as e:
-            logger.error(f"Layer validators module {module_path} failed to load: {e}")
-            continue
-
-        registry_class = getattr(module, registry_class_name, None)
-        validators_map = getattr(registry_class, "VALIDATORS", None)
-        if not isinstance(validators_map, dict):
+    enabled = [
+        (key, value)
+        for key, value in p_config.items()
+        if isinstance(value, dict) and value.get("enabled")
+    ]
+    validators: List[BaseValidator] = []
+    for validator_type, validator_config in enabled:
+        validator_class = STANDARD_VALIDATORS.get(validator_type)
+        if validator_class is None:
             logger.warning(
-                f"{module_path} has no {registry_class_name}.VALIDATORS mapping"
+                f"Validator type '{validator_type}' is enabled but not registered. "
+                f"Available: {sorted(STANDARD_VALIDATORS)}"
             )
             continue
-
-        for validator_type, validator_class in validators_map.items():
-            p_registry.register_validator(
-                validator_type, validator_class, p_layer=layer_name
-            )
-        logger.info(
-            f"Registered layer-specific validators for {layer_name}: "
-            f"{sorted(validators_map)}"
-        )
-
-    logger.info("Validator initialization complete.")
+        validators.append(validator_class(validator_config, get_spark()))
+    return validators
 
 
-class ValidatorRegistry:
-    """Validator classes by layer; the `None` layer holds common fallbacks.
-
-    It is filled once by get_registry() and only read afterwards.
-    """
-
-    def __init__(self):
-        self._validators: Dict[Optional[str], Dict[str, Type[BaseValidator]]] = {}
-
-    def register_validator(
-        self,
-        p_validator_type: str,
-        p_validator_class: Type[BaseValidator],
-        p_layer: Optional[str] = None,
-    ) -> None:
-        """Register or override a validator for a layer (or for all, if None)."""
-        self._validators.setdefault(p_layer, {})[p_validator_type] = p_validator_class
-
-    def get_validator_class(
-        self, p_validator_type: str, p_layer: Optional[str] = None
-    ) -> Optional[Type[BaseValidator]]:
-        """Layer-specific validator class, else the common one, else None."""
-        return self._validators.get(p_layer, {}).get(
-            p_validator_type
-        ) or self._validators.get(None, {}).get(p_validator_type)
-
-    def get_validators(
-        self,
-        p_validator_types: List[str],
-        p_config: Dict[str, Any],
-        p_layer: Optional[str] = None,
-    ) -> List[BaseValidator]:
-        """Build list of validator instances.
-
-        Args:
-            p_validator_types: List of validator type names to instantiate
-            p_config: Configuration dict for all validators
-            p_layer: Optional layer name for layer-specific lookup
-
-        Returns:
-            List of instantiated BaseValidator objects
-        """
-        validators = []
-        spark = get_spark()
-        for validator_type in p_validator_types:
-            validator_class = self.get_validator_class(validator_type, p_layer)
-            if not validator_class:
-                logger.warning(
-                    f"Validator type '{validator_type}' is enabled but not "
-                    f"registered for layer {p_layer}"
-                )
-                continue
-            validator_config = p_config.get(validator_type, {})
-            validators.append(validator_class(validator_config, spark))
-        return validators
-
-
-def get_registry() -> ValidatorRegistry:
-    """Process-wide validator registry, initialized on first use."""
-    global _GLOBAL_REGISTRY
-
-    with _REGISTRY_LOCK:
-        if _GLOBAL_REGISTRY is None:
-            registry = ValidatorRegistry()
-            _initialize_layer_validators(registry)
-            _GLOBAL_REGISTRY = registry
-    return _GLOBAL_REGISTRY
+def stop_totals(p_stop_summaries: List[Dict[str, Any]]) -> Tuple[int, int]:
+    """Total (critical failures, validator errors) of a list of month summaries."""
+    return (
+        sum(s.get("critical_failures", 0) for s in p_stop_summaries),
+        sum(s.get("validator_errors", 0) for s in p_stop_summaries),
+    )
 
 
 class LayerUtils:
     """Utility functions for layer-specific sanity check operations."""
-
-    VALID_LAYERS = [
-        "raw_data",
-        "data_cleaning",
-        "data_transformation",
-        "data_integration",
-    ]
 
     LAYER_DEPENDENCIES = {
         "raw_data": None,
@@ -290,6 +131,7 @@ class LayerUtils:
         "data_transformation": "data_cleaning",
         "data_integration": "data_transformation",
     }
+    VALID_LAYERS = list(LAYER_DEPENDENCIES)
 
     @staticmethod
     def load_config(
@@ -328,7 +170,7 @@ class LayerUtils:
 
             candidates = [
                 config_dir,
-                Path(EnvironmentConfig.get_root_dir())
+                Path(get_root_dir())
                 / layer_name
                 / "src"
                 / "sanity_check"
@@ -458,6 +300,7 @@ class LayerUtils:
         p_start_dt: str,
         p_end_dt: str,
         p_source_name: str,
+        p_schema: Any = None,
     ) -> DataFrame:
         """Apply date filtering to a DataFrame.
 
@@ -467,6 +310,7 @@ class LayerUtils:
             p_start_dt: Start date boundary (string format)
             p_end_dt: End date boundary (string format)
             p_source_name: Name of source for logging
+            p_schema: p_df's schema if already known (saves a server round trip)
 
         Returns:
             Filtered DataFrame between specified date boundaries
@@ -477,30 +321,49 @@ class LayerUtils:
             )
             return p_df
 
-        actual_col = next(
-            (c for c in p_df.columns if c.lower() == p_date_col.lower()), None
-        )
+        # One schema request gives both the column names and the column type.
+        schema = p_schema
+        if schema is None:
+            try:
+                schema = p_df.schema
+            except Exception:
+                schema = None
+        columns = schema.names if schema is not None else p_df.columns
+        actual_col = find_column(columns, p_date_col)
         if not actual_col:
             logger.warning(f"Date column '{p_date_col}' not in {p_source_name}")
             return p_df
 
+        kind = LayerUtils._column_kind(schema, actual_col)
         return p_df.filter(
-            LayerUtils._date_range_condition(
-                p_df, actual_col, p_start_dt, p_end_dt
-            )
+            LayerUtils._date_range_condition(kind, actual_col, p_start_dt, p_end_dt)
         )
 
     @staticmethod
+    def _column_kind(p_schema: Any, p_actual_col: str) -> str:
+        """Simple type name of a column ('date', 'string', ...) or '' if unknown."""
+        try:
+            return p_schema[p_actual_col].dataType.simpleString()
+        except Exception:
+            return ""
+
+    @staticmethod
     def _date_range_condition(
-        p_df: DataFrame, p_actual_col: str, p_start_dt: str, p_end_dt: str
+        p_kind: str, p_actual_col: str, p_start_dt: str, p_end_dt: str
     ):
         """Build an inclusive date-range condition that keeps partition pruning.
 
         The column is compared in its own type: wrapping a DATE or TIMESTAMP
         partition column in to_date() can stop Delta from skipping files.
 
+        A STRING column also gets a plain text range (`col >= start AND
+        col < day after end`) next to the to_date() condition. Only the text
+        range can be pushed down to the Parquet/Delta reader; to_date() keeps
+        the exact result. Both agree for ISO values (YYYY-MM-DD[...]). Disable
+        it with the environment variable `sanity_check_string_date_pushdown=0`.
+
         Args:
-            p_df: DataFrame owning the column
+            p_kind: Column type from _column_kind
             p_actual_col: Actual (resolved) column name
             p_start_dt: First day included (YYYY-MM-DD)
             p_end_dt: Last day included (YYYY-MM-DD)
@@ -511,18 +374,31 @@ class LayerUtils:
         col = f.col(p_actual_col)
         start_date = f.to_date(f.lit(p_start_dt))
         end_date = f.to_date(f.lit(p_end_dt))
-        try:
-            kind = p_df.schema[p_actual_col].dataType.simpleString()
-        except Exception:
-            kind = ""
 
-        if kind == "date":
+        if p_kind == "date":
             return col.between(start_date, end_date)
-        if kind.startswith("timestamp"):
-            return (col >= start_date.cast(kind)) & (
-                col < f.date_add(end_date, 1).cast(kind)
+        if p_kind.startswith("timestamp"):
+            return (col >= start_date.cast(p_kind)) & (
+                col < f.date_add(end_date, 1).cast(p_kind)
             )
-        return f.to_date(col).between(start_date, end_date)
+        condition = f.to_date(col).between(start_date, end_date)
+        if p_kind == "string" and LayerUtils._string_date_pushdown():
+            try:
+                day_after_end = date.fromisoformat(p_end_dt) + timedelta(days=1)
+            except ValueError:
+                return condition
+            return (
+                (col >= f.lit(p_start_dt))
+                & (col < f.lit(day_after_end.isoformat()))
+                & condition
+            )
+        return condition
+
+    @staticmethod
+    def _string_date_pushdown() -> bool:
+        """Whether STRING date columns get the pushable text range (default on)."""
+        value = os.getenv("sanity_check_string_date_pushdown", "1")
+        return value.strip().lower() not in {"0", "false", "no", "off"}
 
     # Only error codes that unambiguously mean "this table does not exist".
     # Generic phrases ("does not exist", "cannot be found") also appear for a
@@ -593,6 +469,58 @@ class LayerUtils:
     ) -> DataFrame:
         """Load a dataset (Parquet or Delta/SQL) with optional date filtering.
 
+        See load_dataset_with_columns, which also returns the columns.
+        """
+        return LayerUtils.load_dataset_with_columns(
+            p_metadata, p_config, p_start_dt, p_end_dt
+        )[0]
+
+    # Raw paths are <table>/yyyy/mm/...; this suffix reads every month folder.
+    _ALL_MONTH_FOLDERS = "/*/*/*"
+    _MISSING_PATH_PHRASES = (
+        "path_not_found",
+        "path does not exist",
+        "unable_to_infer_schema",
+    )
+
+    @staticmethod
+    def _month_folders_path(
+        p_path: str, p_start_dt: Optional[str], p_end_dt: Optional[str]
+    ) -> Optional[str]:
+        """Path reading only the yyyy/mm folders of the range, or None.
+
+        Folder yyyy/mm holds the rows of that month, so listing and reading
+        the whole history is not needed. Disable with the environment
+        variable `sanity_check_raw_month_folders=0`.
+        """
+        enabled = os.getenv("sanity_check_raw_month_folders", "1").strip().lower()
+        if (
+            enabled in {"0", "false", "no", "off"}
+            or not (p_start_dt and p_end_dt)
+            or not p_path.endswith(LayerUtils._ALL_MONTH_FOLDERS)
+        ):
+            return None
+        try:
+            months = LayerUtils._resolve_month_ranges(p_start_dt, p_end_dt)
+        except ValueError:
+            return None
+        folders = [f"{start[:4]}/{start[5:7]}" for start, _ in months]
+        inner = folders[0] if len(folders) == 1 else "{" + ",".join(folders) + "}"
+        return f"{p_path[: -len(LayerUtils._ALL_MONTH_FOLDERS)]}/{inner}/*"
+
+    @staticmethod
+    def load_dataset_with_columns(
+        p_metadata: Dict[str, Any],
+        p_config: Dict[str, Any],
+        p_start_dt: Optional[str] = None,
+        p_end_dt: Optional[str] = None,
+    ) -> Tuple[DataFrame, List[str]]:
+        """Load a dataset (Parquet or Delta/SQL) with optional date filtering.
+
+        A raw path ending in /*/*/* is read only for the month folders of the
+        range; if none of them exists, the whole path is read as before (and
+        the date filter leaves the dataset empty).
+
         Errors are raised, not swallowed: a dataset that cannot be read must be
         reported as a failure, never skipped as if it had no data. An empty
         result is returned as-is so the engine can apply `fail_on_empty`.
@@ -604,7 +532,7 @@ class LayerUtils:
             p_end_dt: End date for filtering; skipped when None
 
         Returns:
-            Filtered DataFrame (possibly empty).
+            Tuple of (filtered DataFrame, possibly empty; its columns).
 
         Raises:
             ValueError: If the metadata has neither a path nor a table.
@@ -615,16 +543,34 @@ class LayerUtils:
         path = p_metadata.get("path")
 
         if path:
+            month_path = LayerUtils._month_folders_path(path, p_start_dt, p_end_dt)
 
-            def _read() -> DataFrame:
+            def _read_path(p_path: str) -> Tuple[DataFrame, Any]:
                 try:
-                    df = get_spark().read.format("parquet").load(path)
+                    df = get_spark().read.format("parquet").load(p_path)
                 except Exception as e:
                     if "JVM_ATTRIBUTE_NOT_SUPPORTED" not in str(e):
                         raise
-                    df = get_spark().read.parquet(path)
-                _ = df.columns
-                return df
+                    df = get_spark().read.parquet(p_path)
+                return df, df.schema
+
+            def _read() -> Tuple[DataFrame, Any]:
+                if month_path:
+                    try:
+                        result = _read_path(month_path)
+                        logger.info(f"{label}: reading month folders {month_path}")
+                        return result
+                    except Exception as e:
+                        message = str(e).lower()
+                        if not any(
+                            p in message for p in LayerUtils._MISSING_PATH_PHRASES
+                        ):
+                            raise
+                        logger.info(
+                            f"{label}: no month folders for the range "
+                            f"({month_path}); reading {path}"
+                        )
+                return _read_path(path)
 
         else:
             database = p_metadata.get("database")
@@ -634,7 +580,7 @@ class LayerUtils:
                     f"Invalid metadata for {label}: missing path or "
                     f"database/dataset_name"
                 )
-            catalog = EnvironmentConfig.get_catalog_name()
+            catalog = get_catalog_name()
             if not (
                 LayerUtils._validate_sql_identifier(catalog, "catalog")
                 and LayerUtils._validate_sql_identifier(database, "database")
@@ -643,17 +589,19 @@ class LayerUtils:
                 raise ValueError(f"Unsafe table identifier for {label}")
             query = f"SELECT * FROM {catalog}.{database}.{dataset_name}"
 
-            def _read() -> DataFrame:
+            def _read() -> Tuple[DataFrame, Any]:
                 df = get_spark().sql(query)
-                _ = df.columns  # analyze now: missing tables/dead sessions fail here
-                return df
+                return df, df.schema
 
-        df = LayerUtils._with_session_retry(_read, label)
+        # The schema is requested inside the retry (missing tables and dead
+        # sessions fail here) and reused by the date filter.
+        df, schema = LayerUtils._with_session_retry(_read, label)
+        columns = list(schema.names) if schema is not None else list(df.columns)
         if p_start_dt and p_end_dt:
             df = LayerUtils._apply_date_filter(
-                df, date_col, p_start_dt, p_end_dt, label
+                df, date_col, p_start_dt, p_end_dt, label, p_schema=schema
             )
-        return df
+        return df, columns
 
     @staticmethod
     def load_metadata_from_catalog(
@@ -669,10 +617,7 @@ class LayerUtils:
         Returns:
             List of metadata dictionaries or empty list if catalog not found
         """
-        base_dir = EnvironmentConfig.get_root_dir()
-        catalog_path = os.path.join(
-            base_dir, p_catalog_layer, "conf", "data_catalog.yml"
-        )
+        catalog_path = config_path(p_catalog_layer, "conf", "data_catalog.yml")
 
         if not os.path.exists(catalog_path):
             logger.error(f"data_catalog.yml not found: {catalog_path}")
@@ -685,7 +630,7 @@ class LayerUtils:
             return []
 
         entries = [v for v in inputs.values() if isinstance(v, dict)]
-        env = EnvironmentConfig.get_environment()
+        env = get_environment()
         is_parquet = any(
             e.get("file_extension", "parquet") == "parquet" for e in entries
         )
@@ -702,10 +647,8 @@ class LayerUtils:
                 if e.get("path")
             ]
 
-        settings = load_yaml_file(
-            os.path.join(base_dir, "env", "base", "global_settings.yml")
-        )
-        env_path = os.path.join(base_dir, "env", env, "global_settings.yml")
+        settings = load_yaml_file(config_path(GLOBAL_SETTINGS_FILE))
+        env_path = config_path("env", env, "global_settings.yml")
         if os.path.exists(env_path):
             settings = {**settings, **load_yaml_file(env_path)}
         base_path = settings.get("raw_data_path", "")
@@ -783,31 +726,6 @@ class LayerUtils:
             )
         return month_ranges
 
-    # Validator types whose config keys _extract_columns_for_caching understands.
-    # Any other enabled type (a layer-specific validator) disables pruning,
-    # since its referenced columns cannot be known.
-    _PRUNABLE_VALIDATOR_TYPES = frozenset(STANDARD_VALIDATORS)
-    # Config keys holding column names (as a string or a list) ...
-    _COLUMN_LIST_KEYS = (
-        "columns",
-        "fields",
-        "column_list",
-        "check_columns",
-        "primary_key",
-        "pk",
-        "unique_id",
-        "unique_keys",
-    )
-    # ... and config keys holding a mapping keyed by column name.
-    _COLUMN_MAPPING_KEYS = (
-        "null_thresholds",
-        "null_limits",
-        "null_percentages",
-        "dimensions",
-        "allowed_values",
-        "domain_constraints",
-    )
-
     @staticmethod
     def _extract_columns_for_caching(
         p_config: Dict[str, Any],
@@ -832,10 +750,10 @@ class LayerUtils:
             for k, v in p_config.items()
             if isinstance(v, dict) and v.get("enabled", False)
         }
-        custom_types = set(enabled) - LayerUtils._PRUNABLE_VALIDATOR_TYPES
-        if custom_types:
+        unknown_types = set(enabled) - set(STANDARD_VALIDATORS)
+        if unknown_types:
             logger.info(
-                f"Layer-specific validator(s) {sorted(custom_types)} enabled; "
+                f"Unknown validator type(s) {sorted(unknown_types)} enabled; "
                 f"skipping column pruning."
             )
             return list(p_df_columns)
@@ -854,21 +772,9 @@ class LayerUtils:
         names: List[str] = []
         rule_tokens: List[str] = []
         for validator_type, cfg in enabled.items():
-            for key in LayerUtils._COLUMN_LIST_KEYS:
-                names += _str_list(cfg.get(key))
-            for key in LayerUtils._COLUMN_MAPPING_KEYS:
-                if isinstance(cfg.get(key), dict):
-                    names += _str_list(list(cfg[key]))
-            for check in _list(cfg.get("value_checks")):
-                if isinstance(check, dict):
-                    names += _str_list(check.get("column"))
-            if validator_type == "consistency" or "rules" in cfg:
-                for rule in _list(cfg.get("rules")):
-                    if not isinstance(rule, dict):
-                        continue
-                    names += _str_list(rule.get("column"))
-                    if isinstance(rule.get("condition"), str):
-                        rule_tokens += _rule_identifiers(rule["condition"])
+            cfg_names, cfg_tokens = STANDARD_VALIDATORS[validator_type].config_columns(cfg)
+            names += cfg_names
+            rule_tokens += cfg_tokens
 
         columns_to_cache = {col for col in map(_map, names) if col}
         unmapped_identifiers = set()
@@ -917,7 +823,7 @@ class LayerUtils:
         if not p_stop_summaries:
             return
 
-        env = EnvironmentConfig.get_environment()
+        env = get_environment()
         if env not in ["dev", "prod"]:
             return
 
@@ -925,14 +831,13 @@ class LayerUtils:
         shown = ", ".join(months[:24]) + (
             f" (+{len(months) - 24} más)" if len(months) > 24 else ""
         )
+        critical, errors_count = stop_totals(p_stop_summaries)
         message = (
             f"🚨 CRITICAL sanity check failure ({env})\n"
             f"Dataset: {p_dataset_name}\n"
             f"Months blocked: {len(months)} → {shown}\n"
-            f"Critical failures: "
-            f"{sum(s.get('critical_failures', 0) for s in p_stop_summaries)}\n"
-            f"Validator errors: "
-            f"{sum(s.get('validator_errors', 0) for s in p_stop_summaries)}\n"
+            f"Critical failures: {critical}\n"
+            f"Validator errors: {errors_count}\n"
             f"Decision: STOP"
         )
         errors = {s["error"] for s in p_stop_summaries if s.get("error")}
@@ -987,6 +892,14 @@ class LayerUtils:
             return False
 
     _QUALITY_TABLE_NAME = "sc_sanity_check_results"
+    # History tables confirmed to exist in this process. Only positive answers
+    # are kept: a missing table may be created by the next results write.
+    _KNOWN_QUALITY_TABLES: set = set()
+
+    @staticmethod
+    def _remember_quality_table(p_table: str) -> None:
+        """Record that a quality history table exists (skips later lookups)."""
+        LayerUtils._KNOWN_QUALITY_TABLES.add(p_table)
 
     @staticmethod
     def _resolve_quality_table(
@@ -1010,11 +923,25 @@ class LayerUtils:
             f"{p_catalog}.{LayerUtils._QUALITY_TABLE_NAME}",
         ]
         for table in candidates:
+            if table in LayerUtils._KNOWN_QUALITY_TABLES:
+                return table
             if LayerUtils._with_session_retry(
                 lambda t=table: get_spark().catalog.tableExists(t), p_label
             ):
+                LayerUtils._remember_quality_table(table)
                 return table
         return None
+
+    @staticmethod
+    def _log_quality_table_absent(
+        p_layer: str, p_dataset_name: str, p_detail: str = ""
+    ) -> None:
+        """Log that the history table does not exist yet, so the gate passes."""
+        logger.info(
+            f"ℹ️  Quality gate table not yet created for {p_layer}{p_detail}. "
+            f"First sanity check execution will initialize it. "
+            f"Allowing {p_dataset_name} to proceed."
+        )
 
     @staticmethod
     def check_quality_gate(
@@ -1054,14 +981,11 @@ class LayerUtils:
                 )
                 return False
 
-            catalog = EnvironmentConfig.get_catalog_name()
-            prefix_path = os.path.join(
-                EnvironmentConfig.get_root_dir(), "env", "base", "prefixes.yml"
-            )
-            prefix_map = load_yaml_file(prefix_path) or {}
+            catalog = get_catalog_name()
+            prefix_map = load_yaml_file(config_path(PREFIXES_FILE)) or {}
             prefix_value = prefix_map.get(os.getenv("output_domain", ""))
 
-            env_value = os.getenv("env") or EnvironmentConfig.get_environment()
+            env_value = os.getenv("env") or get_environment()
             schema_name = f"{env_value}_{p_layer}"
 
             if not (
@@ -1090,10 +1014,8 @@ class LayerUtils:
                 catalog, schema_name, p_dataset_name
             )
             if quality_table is None:
-                logger.info(
-                    f"ℹ️  Quality gate table not yet created for {p_layer} "
-                    f"(schema='{schema_name}'). First sanity check execution "
-                    f"will initialize it. Allowing {p_dataset_name} to proceed."
+                LayerUtils._log_quality_table_absent(
+                    p_layer, p_dataset_name, f" (schema='{schema_name}')"
                 )
                 return True
 
@@ -1122,11 +1044,7 @@ class LayerUtils:
 
         except Exception as e:
             if LayerUtils._is_missing_table_error(str(e)):
-                logger.info(
-                    f"ℹ️  Quality gate table not yet created for {p_layer}. "
-                    f"First sanity check execution will initialize it. "
-                    f"Allowing {p_dataset_name} to proceed."
-                )
+                LayerUtils._log_quality_table_absent(p_layer, p_dataset_name)
                 return True
 
             logger.error(
@@ -1144,7 +1062,7 @@ class LayerUtils:
         raw_data keeps its YAML files in src/sanity_check/conf; the other layers
         keep them next to each domain under src/.
         """
-        layer_dir = os.path.join(EnvironmentConfig.get_root_dir(), p_layer_name, "src")
+        layer_dir = config_path(p_layer_name, "src")
         if p_layer_name == "raw_data":
             layer_dir = os.path.join(layer_dir, "sanity_check", "conf")
         return LayerUtils.load_config(layer_dir, p_domain_filter=p_domain_filter)
@@ -1159,8 +1077,6 @@ class FlowExecutionContext:
     node_name: Optional[str]
     domain: Optional[str]
     is_isolated_execution: bool
-    start_dt: Optional[str]
-    end_dt: Optional[str]
 
     @classmethod
     def from_environment(cls) -> "FlowExecutionContext":
@@ -1172,19 +1088,7 @@ class FlowExecutionContext:
             node_name=node_name,
             domain=node_name.split(".")[0] if node_name and "." in node_name else None,
             is_isolated_execution=node_name is not None,
-            start_dt=os.getenv("start_dt"),
-            end_dt=os.getenv("end_dt"),
         )
 
         logger.info(f"Execution context: {context}")
         return context
-
-    def __str__(self) -> str:
-        return (
-            f"FlowExecutionContext("
-            f"workflow={self.workflow}, "
-            f"flow={self.flow_name}, "
-            f"node={self.node_name}, "
-            f"domain={self.domain}, "
-            f"isolated={self.is_isolated_execution})"
-        )
