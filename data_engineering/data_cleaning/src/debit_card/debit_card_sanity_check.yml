@@ -10,7 +10,8 @@ td_cuenta:
       id_cliente: 0
       fecha_informacion: 0
     severity: CRITICAL
-  dimensions:
+  dimensional:
     enabled: true
-    descripcion_clase_tarjeta: ["individual", "empresarial", "desconocido"]
+    dimensions:
+      descripcion_clase_tarjeta: ["individual", "empresarial", "desconocido"]
     severity: CRITICAL

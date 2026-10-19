@@ -26,7 +26,6 @@ mc_loan: mc_pre
 mc_saving_account: mc_aho
 mc_equifax_loan: mc_eqpr
 missing_dates: raw
-sanity_check: sc
 mc_data_quality: mc_qa
 mc_cliente: mc_cli
 sib: sib

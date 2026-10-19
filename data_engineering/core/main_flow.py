@@ -165,7 +165,6 @@ def main():
 
         sanity_check_default = args.sanity_check.lower() == "true"
         os.environ["auto_sanity_check_enabled"] = "1" if sanity_check_default else "0"
-        os.environ["auto_sanity_check_layer"] = args.workflow
 
         execute_flows(
             flows,

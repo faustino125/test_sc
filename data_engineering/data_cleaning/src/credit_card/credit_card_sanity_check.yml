@@ -89,7 +89,8 @@ tc_catalogo_categoria:
       id_categoria_tc: 0
       fecha_catalogo: 0
     severity: CRITICAL
-  dimensions:
+  dimensional:
     enabled: true
-    segmento: ["empresarial","individual"]
+    dimensions:
+      segmento: ["empresarial","individual"]
     severity: CRITICAL

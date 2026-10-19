@@ -1,20 +1,6 @@
-"""Direct persistence of sanity check results.
-
-Each write replaces the (nombre_dataset, _observ_end_dt) pairs being written
-with `replaceWhere`, in the same Delta commit as the new rows: one job and one
-atomic commit, instead of the save_data_flow path (sub-flow, configuration
-files, catalog commands, a DELETE and an append in two commits).
-
-The table is created here, when missing, as an EXTERNAL Delta table at the
-same location save_data_flow used. The layer schema is never created: if it
-does not exist the write fails with a clear error.
-
-Set the environment variable `sanity_check_direct_results_write=0` to persist
-through save_data_flow instead.
-"""
 import logging
 import os
-from typing import List
+from typing import Any, Dict, List
 
 from data_engineering.core.sanity_check.base import (
     VALIDATION_RESULT_SCHEMA,
@@ -31,10 +17,8 @@ from data_engineering.core.sanity_check.utils import (
 
 logger = logging.getLogger(__name__)
 
-ENV_DIRECT_RESULTS_WRITE = "sanity_check_direct_results_write"
 RESULTS_PARTITION_COL = "_observ_end_dt"
-_DEFAULT_TABLE_COMMENT = "Resultados de la comprobación de validación de datos"
-# Columns of VALIDATION_RESULT_SCHEMA, in its order, with their comments.
+_TABLE_COMMENT = "Resultados de la comprobación de validación de datos"
 _COLUMN_COMMENTS = {
     "nombre_dataset": "Dataset validado",
     "columna": "Columna o check evaluado",
@@ -47,14 +31,9 @@ _COLUMN_COMMENTS = {
     "fecha_ejecucion": "Fecha y hora de la validación (UTC-6)",
 }
 
-def direct_write_enabled() -> bool:
-    """Whether results are written here (default) or through save_data_flow."""
-    value = os.getenv(ENV_DIRECT_RESULTS_WRITE, "1")
-    return value.strip().lower() not in {"0", "false", "no", "off"}
-
 
 def _env() -> str:
-    """Environment as save_data_flow reads it for the results write."""
+    """Environment of the results table (the `env` variable, dev by default)."""
     return os.getenv("env", "dev")
 
 
@@ -75,16 +54,17 @@ def results_table(p_layer: str) -> str:
 
 
 def results_location(p_layer: str) -> str:
-    """Storage path of the results table, as save_data_flow builds it.
+    """Storage path of the results table.
 
-    <company_path of env/{prod|dev}/global_settings.yml with $env replaced>
-    + <env>/ (or de/<env>/ in sandbox) + <layer>/sanity_check/<table>.
+    The same path the tables created by earlier versions use:
+    <company_path with $env replaced><env>/ (de/<env>/ in sandbox)
+    <layer>/sanity_check/<table>.
     """
     env = _env()
     if env in ("prod", "dev"):
-        settings_env, container, container_folder = env, f"{env}de", f"{env}/"
+        settings_env, container, folder = env, f"{env}de", env
     else:
-        settings_env, container, container_folder = "dev", "sandbox", f"de/{env}/"
+        settings_env, container, folder = "dev", "sandbox", f"de/{env}"
 
     settings = load_yaml_or_default(
         config_path("env", settings_env, "global_settings.yml"), {}
@@ -95,18 +75,33 @@ def results_location(p_layer: str) -> str:
             f"company_path is not configured in env/{settings_env}/global_settings.yml"
         )
     return (
-        company_path.replace("$env", container)
-        + container_folder
-        + "/".join((p_layer, "sanity_check", LayerUtils._QUALITY_TABLE_NAME))
+        f"{company_path.replace('$env', container)}{folder}/"
+        f"{p_layer}/sanity_check/{LayerUtils._QUALITY_TABLE_NAME}"
     )
 
 
-def _table_comment(p_layer: str) -> str:
-    """description of `sanity_check_results` in the layer's io_config.yml."""
-    io_config = load_yaml_or_default(config_path(p_layer, "conf", "io_config.yml"), {})
-    entry = io_config.get("sanity_check_results") if isinstance(io_config, dict) else None
-    description = entry.get("description") if isinstance(entry, dict) else None
-    return description or _DEFAULT_TABLE_COMMENT
+def _replace_condition(p_rows: List[Dict[str, Any]]) -> str:
+    """replaceWhere predicate covering the (dataset, month) pairs being written.
+
+    One `nombre_dataset = ... AND _observ_end_dt IN (...)` term per dataset
+    instead of one OR term per pair: a 10-year rerun stays a short predicate,
+    and the IN list on the partition column prunes partitions. Pairs not in
+    p_rows are not touched.
+    """
+
+    def _quote(p_value: Any) -> str:
+        return "'" + str(p_value).replace("'", "''") + "'"
+
+    months_by_dataset: Dict[str, set] = {}
+    for row in p_rows:
+        months_by_dataset.setdefault(row["nombre_dataset"], set()).add(
+            row["_observ_end_dt"]
+        )
+    return " OR ".join(
+        f"(nombre_dataset = {_quote(dataset)} AND _observ_end_dt IN "
+        f"({', '.join(_quote(m) for m in sorted(months))}))"
+        for dataset, months in sorted(months_by_dataset.items())
+    )
 
 
 def _sql_string(p_value: str) -> str:
@@ -114,44 +109,46 @@ def _sql_string(p_value: str) -> str:
     return "'" + str(p_value).replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
-def ensure_results_table(p_layer: str) -> str:
-    """Return the results table, creating it as an EXTERNAL table if missing.
+def _create_results_table(p_table: str, p_layer: str) -> None:
+    """Create the results table as an EXTERNAL Delta table.
 
     Raises:
         RuntimeError: If the layer schema does not exist (it is never created).
     """
+    location = results_location(p_layer)
+    columns = ",\n    ".join(
+        f"{name} STRING COMMENT {_sql_string(comment)}"
+        for name, comment in _COLUMN_COMMENTS.items()
+    )
+    ddl = (
+        f"CREATE TABLE IF NOT EXISTS {p_table} (\n    {columns}\n)\n"
+        f"USING DELTA\n"
+        f"PARTITIONED BY ({RESULTS_PARTITION_COL})\n"
+        f"LOCATION {_sql_string(location)}\n"
+        f"COMMENT {_sql_string(_TABLE_COMMENT)}"
+    )
+    try:
+        LayerUtils._with_session_retry(lambda: get_spark().sql(ddl), p_table)
+    except Exception as e:
+        if "schema_not_found" not in str(e).lower():
+            raise
+        raise RuntimeError(
+            f"El esquema {p_table.rsplit('.', 1)[0]} no existe; créelo antes de "
+            f"ejecutar el sanity check (los resultados no se guardaron)."
+        ) from e
+    logger.info(f"Created external sanity check results table {p_table} at {location}")
+
+
+def ensure_results_table(p_layer: str) -> str:
+    """Return the results table, creating it as an EXTERNAL table if missing."""
     table = results_table(p_layer)
     if table in LayerUtils._KNOWN_QUALITY_TABLES:
         return table
 
-    exists = LayerUtils._with_session_retry(
+    if not LayerUtils._with_session_retry(
         lambda: get_spark().catalog.tableExists(table), table
-    )
-    if not exists:
-        location = results_location(p_layer)
-        columns = ",\n    ".join(
-            f"{name} STRING COMMENT {_sql_string(comment)}"
-            for name, comment in _COLUMN_COMMENTS.items()
-        )
-        ddl = (
-            f"CREATE TABLE IF NOT EXISTS {table} (\n    {columns}\n)\n"
-            f"USING DELTA\n"
-            f"PARTITIONED BY ({RESULTS_PARTITION_COL})\n"
-            f"LOCATION {_sql_string(location)}\n"
-            f"COMMENT {_sql_string(_table_comment(p_layer))}"
-        )
-        try:
-            LayerUtils._with_session_retry(lambda: get_spark().sql(ddl), table)
-        except Exception as e:
-            if "schema_not_found" in str(e).lower():
-                schema = table.rsplit(".", 1)[0]
-                raise RuntimeError(
-                    f"El esquema {schema} no existe; créelo antes de ejecutar el "
-                    f"sanity check (los resultados no se guardaron)."
-                ) from e
-            raise
-        logger.info(f"Created external sanity check results table {table} at {location}")
-
+    ):
+        _create_results_table(table, p_layer)
     LayerUtils._remember_quality_table(table)
     return table
 
@@ -162,10 +159,8 @@ def write_results(p_records: List[ValidationRecord], p_layer: str) -> None:
     if not rows:
         return
 
-    from data_engineering.core.save_data_flow import _build_merge_delete_condition
-
     table = ensure_results_table(p_layer)
-    condition = _build_merge_delete_condition(rows)
+    condition = _replace_condition(rows)
 
     def _write() -> None:
         (

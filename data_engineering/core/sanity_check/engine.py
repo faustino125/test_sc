@@ -2,7 +2,6 @@ import logging
 import os
 import re
 import threading
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type
@@ -25,7 +24,6 @@ from data_engineering.core.sanity_check.utils import (
     config_path,
     get_catalog_name,
     get_environment,
-    get_root_dir,
     load_yaml_file,
 )
 from data_engineering.core.utils import send_message_teams
@@ -55,13 +53,6 @@ def get_spark() -> DatabricksSession:
 
 def reset_spark() -> None:
     """Open a new session for the sanity check after a session error.
-
-    The old session is not stopped: load_data_flow and save_data_flow keep
-    their own reference to the default session, and stopping it would make
-    every later read and results write of the run fail. A new session is
-    created instead, since getOrCreate() would hand back the same default one.
-    If this Databricks Connect version cannot create one, the old session is
-    stopped so the next get_spark() opens a fresh default session.
     """
     global _SPARK_SESSION
 
@@ -131,98 +122,6 @@ class LayerUtils:
         "data_transformation": "data_cleaning",
         "data_integration": "data_transformation",
     }
-    VALID_LAYERS = list(LAYER_DEPENDENCIES)
-
-    @staticmethod
-    def load_config(
-        p_path: str, p_domain_filter: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Load sanity check configuration from YAML files.
-
-        Files named `<domain>_sanity_check.yml` are read from the given
-        directory (or the layer's `src/sanity_check/conf`), or from its domain
-        subdirectories, and merged in name order.
-
-        Args:
-            p_path: Path to the configuration file or directory.
-            p_domain_filter: Optional domain filter to select specific configurations.
-
-        Returns:
-            Merged configuration dictionary ({} if nothing is found).
-        """
-        try:
-            absolute_path = os.path.abspath(p_path)
-            layer_name = next(
-                (
-                    part
-                    for part in absolute_path.split(os.sep)
-                    if part in LayerUtils.VALID_LAYERS
-                ),
-                None,
-            )
-            if not layer_name:
-                logger.warning(f"Could not identify layer from path: {absolute_path}")
-                return {}
-
-            config_dir = Path(absolute_path)
-            if config_dir.is_file() or absolute_path.lower().endswith(".yml"):
-                config_dir = config_dir.parent
-
-            candidates = [
-                config_dir,
-                Path(get_root_dir())
-                / layer_name
-                / "src"
-                / "sanity_check"
-                / "conf",
-            ]
-            config_path = next((c for c in candidates if c.is_dir()), None)
-            if not config_path:
-                logger.warning(
-                    f"No sanity check config directory found for layer "
-                    f"'{layer_name}'. Tried: {[str(c) for c in candidates]}. "
-                    f"If running from an installed package, verify the conf "
-                    f"directory ships an __init__.py so its YAML files are packaged."
-                )
-                return {}
-
-            if p_domain_filter:
-                domain_files = list(
-                    config_path.glob(f"{p_domain_filter}_sanity_check.yml")
-                ) or list((config_path / p_domain_filter).glob("*_sanity_check.yml"))
-                if not domain_files:
-                    logger.warning(f"No config found for domain '{p_domain_filter}'")
-                    return {}
-            else:
-                domain_files = list(config_path.glob("*_sanity_check.yml"))
-                if not domain_files:
-                    for d in config_path.iterdir():
-                        if (
-                            d.is_dir()
-                            and not d.name.startswith(("_", "."))
-                            and d.name not in {"sanity_check", "utils", "conf"}
-                        ):
-                            domain_files.extend(d.glob("*_sanity_check.yml"))
-                if not domain_files:
-                    logger.warning(f"No config files in {config_path}")
-                    return {}
-
-            merged_config = {}
-            for yaml_file in sorted(domain_files):
-                try:
-                    domain_config = load_yaml_file(str(yaml_file))
-                    if domain_config:
-                        merged_config.update(domain_config)
-                    else:
-                        logger.warning(f"Empty or invalid config in {yaml_file.name}")
-                except Exception as e:
-                    logger.error(f"Failed to load {yaml_file.name}: {e}", exc_info=True)
-
-            return merged_config
-
-        except Exception as e:
-            logger.error(f"Error loading config: {e}", exc_info=True)
-            return {}
 
     @staticmethod
     def get_dataset_config(
@@ -321,7 +220,6 @@ class LayerUtils:
             )
             return p_df
 
-        # One schema request gives both the column names and the column type.
         schema = p_schema
         if schema is None:
             try:
@@ -352,15 +250,6 @@ class LayerUtils:
         p_kind: str, p_actual_col: str, p_start_dt: str, p_end_dt: str
     ):
         """Build an inclusive date-range condition that keeps partition pruning.
-
-        The column is compared in its own type: wrapping a DATE or TIMESTAMP
-        partition column in to_date() can stop Delta from skipping files.
-
-        A STRING column also gets a plain text range (`col >= start AND
-        col < day after end`) next to the to_date() condition. Only the text
-        range can be pushed down to the Parquet/Delta reader; to_date() keeps
-        the exact result. Both agree for ISO values (YYYY-MM-DD[...]). Disable
-        it with the environment variable `sanity_check_string_date_pushdown=0`.
 
         Args:
             p_kind: Column type from _column_kind
@@ -400,9 +289,6 @@ class LayerUtils:
         value = os.getenv("sanity_check_string_date_pushdown", "1")
         return value.strip().lower() not in {"0", "false", "no", "off"}
 
-    # Only error codes that unambiguously mean "this table does not exist".
-    # Generic phrases ("does not exist", "cannot be found") also appear for a
-    # missing schema/catalog or column, and must not let the gate pass.
     _MISSING_TABLE_PHRASES = (
         "table_or_view_not_found",
         "delta_table_not_found",
@@ -439,11 +325,6 @@ class LayerUtils:
     def _with_session_retry(p_action: Callable[[], Any], p_label: str) -> Any:
         """Run a Spark action; if the session was lost, reopen it and retry once.
 
-        The callable must include the action that actually talks to the server
-        (count, collect, schema...) and call get_spark() itself, so the retry
-        uses the new session. Spark Connect builds DataFrames lazily, so
-        retrying only the construction would never see a session error.
-
         Raises:
             Exception: The error of the last attempt.
         """
@@ -460,22 +341,6 @@ class LayerUtils:
                 logger.error(f"Spark operation failed for {p_label}: {e}")
                 raise
 
-    @staticmethod
-    def load_dataset(
-        p_metadata: Dict[str, Any],
-        p_config: Dict[str, Any],
-        p_start_dt: Optional[str] = None,
-        p_end_dt: Optional[str] = None,
-    ) -> DataFrame:
-        """Load a dataset (Parquet or Delta/SQL) with optional date filtering.
-
-        See load_dataset_with_columns, which also returns the columns.
-        """
-        return LayerUtils.load_dataset_with_columns(
-            p_metadata, p_config, p_start_dt, p_end_dt
-        )[0]
-
-    # Raw paths are <table>/yyyy/mm/...; this suffix reads every month folder.
     _ALL_MONTH_FOLDERS = "/*/*/*"
     _MISSING_PATH_PHRASES = (
         "path_not_found",
@@ -488,10 +353,6 @@ class LayerUtils:
         p_path: str, p_start_dt: Optional[str], p_end_dt: Optional[str]
     ) -> Optional[str]:
         """Path reading only the yyyy/mm folders of the range, or None.
-
-        Folder yyyy/mm holds the rows of that month, so listing and reading
-        the whole history is not needed. Disable with the environment
-        variable `sanity_check_raw_month_folders=0`.
         """
         enabled = os.getenv("sanity_check_raw_month_folders", "1").strip().lower()
         if (
@@ -516,14 +377,6 @@ class LayerUtils:
         p_end_dt: Optional[str] = None,
     ) -> Tuple[DataFrame, List[str]]:
         """Load a dataset (Parquet or Delta/SQL) with optional date filtering.
-
-        A raw path ending in /*/*/* is read only for the month folders of the
-        range; if none of them exists, the whole path is read as before (and
-        the date filter leaves the dataset empty).
-
-        Errors are raised, not swallowed: a dataset that cannot be read must be
-        reported as a failure, never skipped as if it had no data. An empty
-        result is returned as-is so the engine can apply `fail_on_empty`.
 
         Args:
             p_metadata: Dataset metadata (dataset_name, path or database, date_col)
@@ -734,9 +587,6 @@ class LayerUtils:
     ) -> List[str]:
         """Extract columns needed for sanity checks to optimize memory usage.
 
-        Pruning is skipped (all columns returned) whenever a referenced column
-        cannot be determined with certainty.
-
         Args:
             p_config: Dataset validator configuration
             p_date_col: Date/partition column for filtering
@@ -892,8 +742,6 @@ class LayerUtils:
             return False
 
     _QUALITY_TABLE_NAME = "sc_sanity_check_results"
-    # History tables confirmed to exist in this process. Only positive answers
-    # are kept: a missing table may be created by the next results write.
     _KNOWN_QUALITY_TABLES: set = set()
 
     @staticmethod
@@ -905,10 +753,7 @@ class LayerUtils:
     def _resolve_quality_table(
         p_catalog: str, p_schema_name: str, p_label: str
     ) -> Optional[str]:
-        """Find the quality history table, preferring the layer schema.
-
-        Errors (permissions, network, session) are raised so the caller fails
-        closed; only a confirmed absence returns None.
+        """Find the quality history table of the layer schema.
 
         Args:
             p_catalog: Catalog name
@@ -918,18 +763,14 @@ class LayerUtils:
         Returns:
             Fully qualified table name, or None if it does not exist yet.
         """
-        candidates = [
-            f"{p_catalog}.{p_schema_name}.{LayerUtils._QUALITY_TABLE_NAME}",
-            f"{p_catalog}.{LayerUtils._QUALITY_TABLE_NAME}",
-        ]
-        for table in candidates:
-            if table in LayerUtils._KNOWN_QUALITY_TABLES:
-                return table
-            if LayerUtils._with_session_retry(
-                lambda t=table: get_spark().catalog.tableExists(t), p_label
-            ):
-                LayerUtils._remember_quality_table(table)
-                return table
+        table = f"{p_catalog}.{p_schema_name}.{LayerUtils._QUALITY_TABLE_NAME}"
+        if table in LayerUtils._KNOWN_QUALITY_TABLES:
+            return table
+        if LayerUtils._with_session_retry(
+            lambda: get_spark().catalog.tableExists(table), p_label
+        ):
+            LayerUtils._remember_quality_table(table)
+            return table
         return None
 
     @staticmethod
@@ -951,9 +792,6 @@ class LayerUtils:
         p_layer: str = "raw_data",
     ) -> bool:
         """Check if a dataset passed its quality gate for a date range.
-
-        Fails closed: any error other than a confirmed missing history table
-        blocks the dataset.
 
         Args:
             p_dataset_name: Name of the dataset
@@ -1024,8 +862,8 @@ class LayerUtils:
                 f"FROM {quality_table} "
                 f"WHERE estado = 'FAIL' AND severidad = 'CRITICAL' "
                 f"AND nombre_dataset IN ('{dataset_list}') "
-                f"AND _observ_end_dt >= '{p_start_date}' "
-                f"AND _observ_end_dt <= '{p_end_date}'"
+                f"AND _observ_start_dt <= '{p_end_date}' "
+                f"AND _observ_end_dt >= '{p_start_date}'"
             )
             critical_count = LayerUtils._with_session_retry(
                 lambda: get_spark().sql(query).count(), p_dataset_name
@@ -1059,36 +897,48 @@ class LayerUtils:
     ) -> Dict[str, Any]:
         """Load a layer's sanity check configuration, optionally for one domain.
 
-        raw_data keeps its YAML files in src/sanity_check/conf; the other layers
-        keep them next to each domain under src/.
+        Returns:
+            Merged configuration dictionary ({} if nothing is found).
         """
-        layer_dir = config_path(p_layer_name, "src")
+        config_dir = Path(config_path(p_layer_name, "src"))
         if p_layer_name == "raw_data":
-            layer_dir = os.path.join(layer_dir, "sanity_check", "conf")
-        return LayerUtils.load_config(layer_dir, p_domain_filter=p_domain_filter)
+            config_dir = config_dir / "sanity_check" / "conf"
+        if not config_dir.is_dir():
+            logger.warning(
+                f"No sanity check config directory for layer '{p_layer_name}': "
+                f"{config_dir}. If running from an installed package, verify the "
+                f"conf directory ships an __init__.py so its YAML files are packaged."
+            )
+            return {}
 
+        if p_domain_filter:
+            files = list(config_dir.glob(f"{p_domain_filter}_sanity_check.yml")) or list(
+                (config_dir / p_domain_filter).glob("*_sanity_check.yml")
+            )
+        else:
+            files = list(config_dir.glob("*_sanity_check.yml")) or [
+                yaml_file
+                for d in config_dir.iterdir()
+                if d.is_dir()
+                and not d.name.startswith(("_", "."))
+                and d.name not in {"sanity_check", "utils", "conf"}
+                for yaml_file in d.glob("*_sanity_check.yml")
+            ]
+        if not files:
+            logger.warning(
+                f"No sanity check config in {config_dir} (domain={p_domain_filter})"
+            )
+            return {}
 
-@dataclass
-class FlowExecutionContext:
-    """Captures execution context from environment variables."""
-
-    workflow: str
-    flow_name: str
-    node_name: Optional[str]
-    domain: Optional[str]
-    is_isolated_execution: bool
-
-    @classmethod
-    def from_environment(cls) -> "FlowExecutionContext":
-        """Build context from environment variables."""
-        node_name = os.getenv("node")
-        context = cls(
-            workflow=os.getenv("workflow", "unknown"),
-            flow_name=os.getenv("flow", "unknown"),
-            node_name=node_name,
-            domain=node_name.split(".")[0] if node_name and "." in node_name else None,
-            is_isolated_execution=node_name is not None,
-        )
-
-        logger.info(f"Execution context: {context}")
-        return context
+        merged_config: Dict[str, Any] = {}
+        for yaml_file in sorted(files):
+            try:
+                domain_config = load_yaml_file(str(yaml_file))
+            except Exception as e:
+                logger.error(f"Failed to load {yaml_file.name}: {e}", exc_info=True)
+                continue
+            if domain_config:
+                merged_config.update(domain_config)
+            else:
+                logger.warning(f"Empty or invalid config in {yaml_file.name}")
+        return merged_config

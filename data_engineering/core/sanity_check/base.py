@@ -11,6 +11,14 @@ from pyspark.sql.types import StringType, StructField, StructType  # type: ignor
 logger = logging.getLogger(__name__)
 
 
+class QualityGateError(RuntimeError):
+    """Data blocked by a quality control (sanity check or quality gate).
+
+    Lets the orchestrator tell a quality block, which only stops its node,
+    from a system error, which stops the run.
+    """
+
+
 class QualitySeverity(str, Enum):
     """Severity levels for data quality issues."""
 

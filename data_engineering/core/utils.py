@@ -116,24 +116,20 @@ def execute_flow(
         )
 
 
-def _default_is_quality_gate_error(error_msg: str) -> bool:
+def _default_is_quality_gate_exception(error: BaseException) -> bool:
     """Default stub for quality gate error checking when sanity_check is disabled."""
     return False
 
 
-is_quality_gate_error = _default_is_quality_gate_error
+is_quality_gate_exception = _default_is_quality_gate_exception
 
 
 def execute_flows(p_flows, p_flow, p_sanity_check=False, p_nodes=None, workflow=None):
     """
-    Run flows with automatic upstream sanity_checks as preconditions.
+    Run the flows of a workflow, isolating nodes blocked by quality controls.
 
-    Execution Flow (P0: Resilient Node Isolation):
-    1. Execute upstream sanity_checks for the workflow (based on dependency chain)
-    2. Execute main flows for the workflow (with granular error handling per node)
-    3. Execute sanity_check for the current workflow
-
-    A node blocked by the quality gate does not stop the other nodes, but it is
+    The quality controls run inside each node (on load and before saving, see
+    load_data_flow and save_data_flow). A node blocked by the quality gate does not stop the other nodes, but it is
     not silent either: once every node has run, the blocked ones are notified
     and the execution fails so the orchestrator does not report success.
 
@@ -159,15 +155,10 @@ def execute_flows(p_flows, p_flow, p_sanity_check=False, p_nodes=None, workflow=
     """
     if p_sanity_check:
         from data_engineering.core.sanity_check.sanity_check_flow import (
-            is_quality_gate_error as _is_quality_gate_error_real,
-        )
-        from data_engineering.core.sanity_check.sanity_check_flow import (
-            prepare_flow_sanity_checks,
+            is_quality_gate_exception as _is_quality_gate_exception_real,
         )
 
-        globals()["is_quality_gate_error"] = _is_quality_gate_error_real
-
-        prepare_flow_sanity_checks(workflow, p_nodes, p_sanity_check)
+        globals()["is_quality_gate_exception"] = _is_quality_gate_exception_real
 
     successful_nodes = []
     blocked_nodes = {}
@@ -182,7 +173,7 @@ def execute_flows(p_flows, p_flow, p_sanity_check=False, p_nodes=None, workflow=
             successful_nodes.append(flow_name)
         except RuntimeError as e:
             error_msg = str(e)
-            if p_sanity_check and is_quality_gate_error(error_msg):
+            if p_sanity_check and is_quality_gate_exception(e):
                 print(f"⛔ [QUALITY GATE] {flow_name} blocked: {error_msg}")
                 blocked_nodes[flow_name] = error_msg
             else:
@@ -207,9 +198,6 @@ def execute_flows(p_flows, p_flow, p_sanity_check=False, p_nodes=None, workflow=
                 send_message_teams(error_message)
 
             raise RuntimeError(f"Unexpected error en {flow}: {e}")
-
-        finally:
-            os.environ.pop("sanity_check_deferred", None)
 
     total_nodes = len(p_flows)
     results = {

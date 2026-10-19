@@ -1,24 +1,11 @@
 """Month-grouped sanity check execution for long histories.
-
-Instead of filtering and validating one month at a time, every month is
-evaluated in a few Spark jobs:
-
-1. One `groupBy(month).agg(...)` with the conditional counts of all AGGREGATE
-   validators (nulls, dimensions, consistency rules) plus rows per month.
-   Memory is constant: each task only keeps one set of counters per month.
-2. One `keyed_stats_frame` shuffle per block of `batch_months` for KEYED
-   validators (duplicates). Blocks bound the shuffle size and are read with a
-   date filter on the source column so Delta can prune partitions.
-
-Results are built in Python from the collected rows and handed to a sink once
-per block, so a failure late in a long history keeps the earlier blocks.
-The records are identical to the per-month path: one row per check and month.
 """
 import logging
 import os
 import time
 from dataclasses import replace
-from datetime import datetime
+from calendar import monthrange
+from datetime import date, datetime
 from typing import (
     Any,
     Callable,
@@ -55,21 +42,12 @@ ROWS_ALIAS = "__sc_rows"
 NULL_MONTH_LABEL = "SIN_FECHA"
 DEFAULT_BATCH_MONTHS = 12
 ENV_BATCH_MONTHS = "sanity_check_batch_months"
-# Above a few hundred aggregate expressions Spark exceeds the 64KB generated
-# method limit and falls back to slower interpreted code, so they are split.
 MAX_AGG_EXPRS_PER_JOB = 200
 ERROR_CATEGORIES = frozenset({"VALIDATOR_ERROR", "LOAD_ERROR", "VALIDATION_ERROR"})
-# Key for keyed results that apply to every month of a block (job errors).
 _ALL_MONTHS = "__all_months__"
 
 MonthRange = Tuple[str, str]
 RecordsSink = Callable[[List[ValidationRecord]], None]
-
-
-# --------------------------------------------------------------------------- #
-# Pure helpers
-# --------------------------------------------------------------------------- #
-
 
 def resolve_batch_months(p_config: Optional[Mapping[str, Any]]) -> int:
     """Months per block: dataset config `batch_months`, env var, or default.
@@ -106,15 +84,23 @@ def split_into_blocks(
 
 
 def label_month_range(p_label_date: str) -> MonthRange:
-    """Observation range used when rows cannot be attributed to a month.
+    """Month of p_label_date, used when rows cannot be attributed to a month.
+
+    The month end is stamped as _observ_end_dt, the key every month result
+    uses, so a later write of that month replaces these results too.
 
     Args:
-        p_label_date: Date stamped as _observ_end_dt (YYYY-MM-DD)
+        p_label_date: Any day of the month (YYYY-MM-DD)
 
     Returns:
-        (first day of that month, p_label_date)
+        (first day, last day) of that month.
+
+    Raises:
+        ValueError: If p_label_date is not a YYYY-MM-DD date.
     """
-    return f"{p_label_date[:7]}-01", p_label_date
+    day = date.fromisoformat(p_label_date[:10])
+    last_day = monthrange(day.year, day.month)[1]
+    return day.replace(day=1).isoformat(), day.replace(day=last_day).isoformat()
 
 
 def default_label_date() -> str:
@@ -168,7 +154,7 @@ def validator_error_record(
     p_error: Exception,
     p_severity: QualitySeverity,
 ) -> ValidationRecord:
-    """Record for a validator that raised (same format as the per-month engine)."""
+    """Record for a validator that raised."""
     return create_record(
         p_dataset_name=p_dataset_name,
         p_check_name=p_validator_name,
@@ -197,9 +183,6 @@ def empty_dataset_record(
 
 def skipped_record(p_dataset_name: str, p_reason: str) -> ValidationRecord:
     """Record for a month where no check was evaluated.
-
-    It is still written so MERGE_BY_DATASET replaces older results for the
-    month (a stale CRITICAL would otherwise keep blocking the quality gate).
     """
     return create_record(
         p_dataset_name=p_dataset_name,
@@ -238,8 +221,6 @@ def assemble_month_records(
 ) -> List[ValidationRecord]:
     """Build the records of one month.
 
-    An empty month only gets its EMPTY_DATASET record.
-
     Args:
         p_dataset_name: Dataset name
         p_row: Aggregate row of the month (None or 0 rows = empty month)
@@ -277,9 +258,6 @@ def summarize_month(
     p_block_on_validator_error: bool,
 ) -> Dict[str, Any]:
     """Summary and STOP/PASS decision of one month.
-
-    STOP when there is a CRITICAL failure, or a validator/load error and
-    block_on_validator_error is on.
     """
     failures = [r for r in p_records if r.estado == ValidationStatus.FAIL.value]
     critical = [r for r in failures if r.severidad == QualitySeverity.CRITICAL.value]
@@ -303,15 +281,11 @@ def summarize_month(
 
 class TrackingSink:
     """Wraps a results sink to know what was persisted and whether it failed.
-
-    A failure while persisting must propagate as is; a failure while
-    validating is turned into error records for the months not yet written.
     """
 
     def __init__(self, p_sink: RecordsSink) -> None:
         self._sink = p_sink
         self.failed = False
-        self.calls = 0
         self.written_months: set = set()
 
     def __call__(self, p_records: List[ValidationRecord]) -> None:
@@ -320,7 +294,6 @@ class TrackingSink:
         except Exception:
             self.failed = True
             raise
-        self.calls += 1
         self.written_months.update(r._observ_end_dt for r in p_records)
 
 
@@ -356,9 +329,6 @@ def record_failure(
     p_sink: TrackingSink,
 ) -> List[Dict[str, Any]]:
     """Turn a load/validation error into CRITICAL records for unwritten months.
-
-    Call it from an `except` block. An error raised by the sink itself is
-    re-raised: the results could not be persisted, so they cannot be replaced.
 
     Returns:
         One STOP summary per month recorded.
@@ -411,11 +381,6 @@ def select_checked_columns(
     return p_df.select(*columns), list(columns)
 
 
-# --------------------------------------------------------------------------- #
-# Spark execution
-# --------------------------------------------------------------------------- #
-
-
 class GroupedValidationRunner:
     """Validate a DataFrame for many months with a bounded number of jobs."""
 
@@ -436,16 +401,12 @@ class GroupedValidationRunner:
             p_df: Data to validate (already restricted to the requested range)
             p_dataset_name: Dataset name for the records
             p_config: Dataset validator configuration
-            p_date_col: Date column used to attribute rows to months. If it is
-                None or missing, the whole DataFrame is one group whose result
-                applies to every month in p_month_ranges.
-            p_month_ranges: Months to report. None derives them from the data
-                (min..max month, gaps reported as empty).
+            p_date_col: Date column used to attribute rows to months. 
+            p_month_ranges: Months to report, plus any month the data has
+                outside them. None derives them from the data.
             p_sink: Called once per block with that block's records
-            p_null_month_label: _observ_end_dt for rows without a month
-                (null date, or no date column without p_month_ranges)
-            p_columns: p_df's columns if already known (each `df.columns` is
-                a round trip to the Spark Connect server)
+            p_null_month_label: Day whose month gets the rows without a month.
+            p_columns: p_df's columns if already known
 
         Returns:
             One summary per reported month (decision PASS/STOP).
@@ -469,11 +430,12 @@ class GroupedValidationRunner:
             QualitySeverity.CRITICAL if block_on_error else QualitySeverity.HIGH
         )
 
-        validators = build_validators(p_config) if p_config.get("enabled", True) else []
+        enabled = p_config.get("enabled", True)
+        validators = build_validators(p_config) if enabled else []
         if not validators:
             reason = (
                 "No hay validaciones habilitadas para el dataset."
-                if p_config.get("enabled", True)
+                if enabled
                 else "Validación deshabilitada en la configuración."
             )
             logger.info(f"'{ds}': {reason}")
@@ -518,7 +480,27 @@ class GroupedValidationRunner:
             agg_rows, actual_date_col, p_month_ranges, null_label
         )
 
+        def month_result(
+            p_row: Optional[Mapping[str, Any]],
+            p_extra: List[ValidationRecord],
+            p_start: str,
+            p_end: str,
+            p_label: str,
+        ) -> Tuple[List[ValidationRecord], Dict[str, Any]]:
+            """Stamped records and summary of one month (or the null-month group)."""
+            records = stamp_records(
+                assemble_month_records(
+                    ds, p_row, static, agg_validators, p_extra, fail_on_empty
+                ),
+                p_start,
+                p_end,
+            )
+            return records, summarize_month(
+                ds, p_label, records, len(validators), block_on_error
+            )
+
         null_records: List[ValidationRecord] = []
+        null_summary: Optional[Dict[str, Any]] = None
         if null_row and null_row.get(ROWS_ALIAS):
             logger.warning(
                 f"'{ds}': {null_row[ROWS_ALIAS]:,} rows with null "
@@ -534,18 +516,10 @@ class GroupedValidationRunner:
                 ),
                 None,
             )
-            null_records = stamp_records(
-                assemble_month_records(
-                    ds, null_row, static, agg_validators, extra, fail_on_empty
-                ),
-                *label_month_range(null_label),
-            )
-            null_summary = summarize_month(
-                ds, NULL_MONTH_LABEL, null_records, len(validators), block_on_error
+            null_records, null_summary = month_result(
+                null_row, extra, *label_month_range(null_label), NULL_MONTH_LABEL
             )
 
-        # Without a date column every month has the same data, so the keyed
-        # validators run once and their records are reused.
         shared_extra: Optional[List[ValidationRecord]] = None
         if not actual_date_col and (agg_rows.get(None) or {}).get(ROWS_ALIAS):
             shared_extra = self._keyed_extra(
@@ -555,15 +529,16 @@ class GroupedValidationRunner:
 
         summaries: List[Dict[str, Any]] = []
         blocks = split_into_blocks(months, batch_months)
-        # Type of the date column, read once for every block filter below.
         date_kind: Optional[str] = None
 
-        # Rows without a month go with the block holding their stamp month, so
-        # one write replaces that month's results instead of two competing ones.
-        null_block_idx = len(blocks) - 1
-        for idx, block in enumerate(blocks):
-            if any(start <= null_label <= end for start, end in block):
-                null_block_idx = idx
+        null_block_idx = next(
+            (
+                idx
+                for idx, block in enumerate(blocks)
+                if any(start <= null_label <= end for start, end in block)
+            ),
+            len(blocks) - 1,
+        )
 
         for b_idx, block in enumerate(blocks):
             block_start, block_end = block[0][0], block[-1][1]
@@ -602,16 +577,8 @@ class GroupedValidationRunner:
                 elif row and row.get(ROWS_ALIAS):
                     extra = self._keyed_extra(keyed_results, m_end)
 
-                records = stamp_records(
-                    assemble_month_records(
-                        ds, row, static, agg_validators, extra, fail_on_empty
-                    ),
-                    m_start,
-                    m_end,
-                )
-                summaries.append(
-                    summarize_month(ds, m_end, records, len(validators), block_on_error)
-                )
+                records, summary = month_result(row, extra, m_start, m_end, m_end)
+                summaries.append(summary)
                 block_records.extend(records)
 
             if null_records and b_idx == null_block_idx:
@@ -636,8 +603,6 @@ class GroupedValidationRunner:
         )
         return summaries
 
-    # -- preparation ------------------------------------------------------- #
-
     @staticmethod
     def _prepare(
         p_df: DataFrame,
@@ -650,9 +615,6 @@ class GroupedValidationRunner:
         List[Tuple[BaseValidator, List[str]]],
     ]:
         """Split validators by grouped mode and collect data-independent records.
-
-        A validator whose preparation raises (e.g. invalid config) becomes a
-        VALIDATOR_ERROR record for every month and is not run.
         """
         static: List[ValidationRecord] = []
         agg_groups: List[Tuple[BaseValidator, List[Column]]] = []
@@ -684,8 +646,6 @@ class GroupedValidationRunner:
                 )
         return static, agg_groups, keyed
 
-    # -- aggregate counts -------------------------------------------------- #
-
     @staticmethod
     def _collect_by_month(
         p_df_m: DataFrame, p_exprs: Sequence[Column]
@@ -715,9 +675,6 @@ class GroupedValidationRunner:
         Dict[Optional[str], Dict[str, Any]], List[Tuple[BaseValidator, Exception]]
     ]:
         """Compute all aggregate metrics, isolating a failing validator.
-
-        The combined job runs first; only if it fails is each validator run on
-        its own, so one bad expression does not hide the others' results.
 
         Raises:
             Exception: If even the plain row count fails (data unreadable).
@@ -767,10 +724,17 @@ class GroupedValidationRunner:
             months = list(p_month_ranges or [label_month_range(p_null_label)])
             return months, {end: whole for _, end in months}, None
 
+        present = sorted(k for k in p_rows_by_month if k is not None)
         if p_month_ranges:
-            months = list(p_month_ranges)
+            # Every requested month is reported (an empty one as EMPTY_DATASET,
+            # replacing older results), plus any month the data has outside them.
+            requested = {end for _, end in p_month_ranges}
+            months = sorted(
+                list(p_month_ranges)
+                + [label_month_range(k) for k in present if k not in requested],
+                key=lambda m: m[1],
+            )
         else:
-            present = sorted(k for k in p_rows_by_month if k is not None)
             months = (
                 LayerUtils._resolve_month_ranges(f"{present[0][:7]}-01", present[-1])
                 if present
@@ -784,7 +748,6 @@ class GroupedValidationRunner:
 
         return months, {end: p_rows_by_month.get(end) for _, end in months}, null_row
 
-    # -- keyed validators -------------------------------------------------- #
 
     @staticmethod
     def _run_keyed(
@@ -828,51 +791,26 @@ class GroupedValidationRunner:
             + list(p_keyed_results.get(_ALL_MONTHS, []))
         ]
 
-# --------------------------------------------------------------------------- #
-# Dataset orchestration (sanity_check_flow)
-# --------------------------------------------------------------------------- #
-
-
-def resolve_dataset_config(
-    p_metadata: Dict[str, Any], p_config_all: Dict[str, Any]
-) -> Tuple[str, Optional[Dict[str, Any]]]:
-    """Find a dataset's config; a config with _config_file renames the dataset."""
-    dataset_name = p_metadata.get("dataset_name", "unknown")
-    config = LayerUtils.get_dataset_config(p_config_all, dataset_name)
-
-    if config and "_config_file" in config:
-        for key, val in p_config_all.items():
-            if val is config:
-                dataset_name = key
-                p_metadata["dataset_name"] = key
-                break
-    return dataset_name, config
-
 
 def validate_dataset_grouped(
     p_metadata: Dict[str, Any],
     p_config_all: Dict[str, Any],
-    p_loader_func: Callable,
     p_month_ranges: Sequence[MonthRange],
     p_sink: RecordsSink,
 ) -> List[Dict[str, Any]]:
     """Load one dataset for the whole range and validate it month-grouped.
 
-    Load or validation errors become CRITICAL records for every month not yet
-    persisted; a failure of the sink itself is raised.
-
     Args:
         p_metadata: Dataset metadata (dataset_name, path or database, date_col)
         p_config_all: All dataset configurations of the layer
-        p_loader_func: Callable (metadata, config, start_dt, end_dt) returning
-            a DataFrame, or (DataFrame, columns)
         p_month_ranges: Months to validate
         p_sink: Persists a block of records
 
     Returns:
         Summaries of the months whose decision is STOP.
     """
-    dataset_name, config = resolve_dataset_config(p_metadata, p_config_all)
+    dataset_name = p_metadata.get("dataset_name", "unknown")
+    config = LayerUtils.get_dataset_config(p_config_all, dataset_name)
     if config is None:
         logger.warning(f"⚠️ No config found for dataset '{dataset_name}'")
         return []
@@ -884,11 +822,9 @@ def validate_dataset_grouped(
     with timed_phase(f"{dataset_name} total"):
         try:
             with timed_phase(f"{dataset_name} load"):
-                loaded = p_loader_func(p_metadata, config, months[0][0], months[-1][1])
-                # A loader may also return the columns it already knows.
-                df, known_columns = loaded if isinstance(loaded, tuple) else (loaded, None)
-                if df is None:
-                    raise ValueError("loader returned no DataFrame")
+                df, known_columns = LayerUtils.load_dataset_with_columns(
+                    p_metadata, config, months[0][0], months[-1][1]
+                )
                 date_col = LayerUtils._resolve_date_col(config, p_metadata)
                 df, columns = select_checked_columns(
                     df, dataset_name, config, date_col, p_columns=known_columns

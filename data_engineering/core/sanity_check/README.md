@@ -43,8 +43,8 @@ The module follows a preventive model so that quality issues are caught as early
 
 | Layer | Timing | Behavior |
 | :--- | :--- | :--- |
-| **Raw Data** | Pre-save | Validates the source before persistence. Critical failures halt the load. |
-| **Cleaning** | On-load and pre-save | Validates the upstream input first, then validates the cleaned output before persistence. |
+| **Raw Data** | On-load (by Cleaning) | Raw sources are files landed by an external process; the pipeline never writes them. They are validated when a Cleaning node loads them: only the sources that node consumes and that have a config. Critical failures block that node. With `--sanity_check false` raw data is not validated. |
+| **Cleaning** | On-load and pre-save | Validates its raw inputs first (see above), then validates the cleaned output before persistence. |
 | **Transformation** | Pre-save | Enforces business rules before producing the transformed output. |
 | **Integration** | Pre-save | Performs the final control before the data is exposed for consumption or BI. |
 
@@ -64,13 +64,16 @@ The quality gate **fails closed**: when in doubt, it blocks.
 - When no check applies (validation disabled, no enabled validators), a `NO_CHECKS` record with status `SKIPPED` is written so older results for the same dataset and month are replaced.
 - If the quality history table does not exist yet, the first run creates it (as an external table, see *Results table*) and execution continues. If the layer schema `<env>_<layer>` does not exist, the write fails with a clear error: the sanity check never creates schemas.
 - Any other problem verifying the quality gate (invalid dates, permission or connection errors, missing schema/catalog) blocks execution.
-- Nodes blocked by the quality gate do not stop the other nodes of the run, but once all nodes have run they are notified in Teams and the execution fails.
+- Nodes blocked by the quality gate do not stop the other nodes of the run, but once all nodes have run they are notified in Teams and the execution fails. Quality blocks are raised as `QualityGateError` (a `RuntimeError` subclass); any other error, including a sanity check that cannot run, stops the run as a system error.
+- The historical quality gate counts a CRITICAL result when its month overlaps the requested range (`_observ_start_dt <= end_dt AND _observ_end_dt >= start_dt`), so a range ending mid-month still sees that month's results.
 
 ### Pre-save validation
 
-- Every staged row is validated: with a date column, the months come from the data itself (not from `start_dt`/`end_dt`), and rows with a null date are validated as their own group, stamped with `end_dt`.
+- Every staged row is validated. Every month of `start_dt` → `end_dt` is reported (a month without rows as `EMPTY_DATASET`), plus any month the data has outside that range, so the results of those months are always replaced, never left over from an older run.
+- Rows with a null date are validated as their own group (`SIN_FECHA`), stamped with the month of `end_dt`. Every result is keyed by the month end (`_observ_end_dt`), never by a mid-month date.
 - The `_observ_start_dt` / `_observ_end_dt` columns that `save_data_flow` derives before writing are added for validation, so checks on them see the persisted values.
-- When the dataset has a sanity check config, this fresh validation decides; the historical quality gate is only consulted for datasets without a config.
+- When the dataset has a sanity check config, this fresh validation decides.
+- A dataset without a config is persisted **without quality checks**: a warning is logged and a `NO_CHECKS` / `SKIPPED` record is written for each month of the run (`start_dt` → `end_dt`), so coverage gaps are visible in the results table (`WHERE validacion = 'NO_CHECKS'`) and older results for those months are replaced.
 
 
 > Use `--sanity-check false` only when you intentionally want to bypass validation.
@@ -94,7 +97,6 @@ Results keep the same granularity as before: one row per check and month, stampe
 | `sanity_check_batch_months` | environment variable | `12` | Same, for every dataset without its own `batch_months`. |
 | `sanity_check_pre_save_cache` | environment variable | `disk` | Pre-save keeps only the checked columns and materializes them once with `DISK_ONLY`, so the transformation is not recomputed per pass. `none` recomputes instead (no local disk used). Where `persist` is not supported (e.g. serverless) it falls back to recomputing. |
 | `sanity_check_results_flush_records` | environment variable | `20000` | Buffered result records that trigger an early write in a layer flow. |
-| `sanity_check_direct_results_write` | environment variable | `1` | Write results directly (one atomic commit, external table). `0` persists through `save_data_flow` as before. |
 | `sanity_check_raw_month_folders` | environment variable | `1` | Read only the `yyyy/mm` folders of the range for raw paths ending in `/*/*/*`. `0` reads every folder. |
 | `sanity_check_string_date_pushdown` | environment variable | `1` | For a STRING date column, add a text range (`col >= start AND col < day after end`) that the Parquet/Delta reader can push down, next to the exact `to_date()` condition. Both agree for ISO values (`YYYY-MM-DD...`); set `0` if a source stores dates in another text format. |
 

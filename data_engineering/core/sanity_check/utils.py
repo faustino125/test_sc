@@ -1,3 +1,4 @@
+import calendar
 import copy
 import logging
 import os
@@ -9,18 +10,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Tuple
 
-from pyspark.sql import DataFrame, SparkSession  # type: ignore
-
-from data_engineering.core.sanity_check.base import (  # noqa: F401 (re-exported)
-    VALIDATION_RESULT_SCHEMA,
-    ValidationRecord,
-    create_record,
-)
+from data_engineering.core.sanity_check.base import ValidationRecord
 from data_engineering.core.utils import load_yaml_file as _load_yaml_file_uncached
 
 logger = logging.getLogger(__name__)
 
-# Parsed YAML by real path; the mtime invalidates an entry if the file changes.
 _YAML_CACHE: Dict[str, Tuple[float, Any]] = {}
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
@@ -39,9 +33,6 @@ _TIMEZONE_UTC_6 = timezone(timedelta(hours=-6))
 def timed_phase(p_label: str) -> Iterator[None]:
     """Log how long a sanity check phase took, even when it raises.
 
-    Lines are prefixed with [SC-TIMING] so a run can be profiled by filtering
-    the logs, without the Spark UI.
-
     Args:
         p_label: Phase description (dataset, block, step)
     """
@@ -52,29 +43,8 @@ def timed_phase(p_label: str) -> Iterator[None]:
         logger.info(f"[SC-TIMING] {p_label}: {time.perf_counter() - start:.1f}s")
 
 
-def to_dataframe(
-    p_spark: SparkSession,
-    p_records: List[ValidationRecord],
-) -> DataFrame:
-    """Convert validation records to Spark DataFrame safely.
-
-    Args:
-        p_spark: Active SparkSession
-        p_records: List of ValidationRecord instances
-
-    Returns:
-        DataFrame with schema matching VALIDATION_RESULT_SCHEMA
-    """
-    return p_spark.createDataFrame(
-        result_rows(p_records), schema=VALIDATION_RESULT_SCHEMA
-    )
-
-
 def result_rows(p_records: List[ValidationRecord]) -> List[Dict[str, Any]]:
     """Rows written for the records, with execution and observation dates filled.
-
-    Missing `_observ_end_dt` / `_observ_start_dt` default to end_dt from the
-    environment (or today, UTC-6) and the first day of that month.
     """
     if not p_records:
         return []
@@ -90,8 +60,10 @@ def result_rows(p_records: List[ValidationRecord]) -> List[Dict[str, Any]]:
             f"(expected YYYY-MM-DD). Falling back to current date."
         )
         end_dt_date = now_utc_6.date()
-        observ_end_dt = end_dt_date.strftime("%Y-%m-%d")
 
+    # Month end, the key every month result uses (never a mid-month date).
+    last_day = calendar.monthrange(end_dt_date.year, end_dt_date.month)[1]
+    observ_end_dt = end_dt_date.replace(day=last_day).strftime("%Y-%m-%d")
     default_start = end_dt_date.replace(day=1).strftime("%Y-%m-%d")
 
     def _start_str(p_value: Any) -> str:
@@ -147,9 +119,6 @@ def load_yaml_or_default(p_file_path: str, p_fallback: Any = None) -> Any:
         logger.error(f"Error loading {p_file_path}: {e}")
         return p_fallback
 
-
-# Environment values below are resolved once per process (first call wins).
-# Tests can reset them with <function>.cache_clear().
 
 
 @lru_cache(maxsize=None)

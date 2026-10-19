@@ -201,14 +201,6 @@ def load_raw_data_flow() -> DataFrame:
                 else None
             )
             _p_nodes_upstream = [_node] if _node else None
-            _saved_env = {
-                "flow": os.getenv("flow"),
-                "node": os.getenv("node"),
-                "sanity_check_executed": os.getenv("sanity_check_executed"),
-                "workflow": os.getenv("workflow"),
-                "auto_sanity_check_layer": os.getenv("auto_sanity_check_layer"),
-                "sanity_check_deferred": os.getenv("sanity_check_deferred"),
-            }
             try:
                 execute_sanity_check(_source_layer, p_nodes=_p_nodes_upstream)
                 logger.info(f"[STEP 1] Sanity check completado para {_source_layer}")
@@ -218,12 +210,6 @@ def load_raw_data_flow() -> DataFrame:
                     f"{_source_layer}: {e}"
                 )
                 raise
-            finally:
-                for key, original_value in _saved_env.items():
-                    if original_value is None:
-                        os.environ.pop(key, None)
-                    else:
-                        os.environ[key] = original_value
 
         if input_file:
             for reference in input_file:

@@ -2,7 +2,7 @@ au_transacciones_tarjetas:
   duplicates:
     enabled: true
     primary_key: ["id_cliente", "cuenta_corporativa"]
-  severity: HIGH
+    severity: HIGH
   null_values:
     enabled: true
     columns: ["id_cliente", "cuenta_corporativa", "_observ_end_dt"]

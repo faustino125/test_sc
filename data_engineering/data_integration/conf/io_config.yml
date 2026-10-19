@@ -1,10 +1,5 @@
 partition_col: &partition_col _observ_end_dt
 
-sanity_check_results:
-  Output: "sanity_check_results"
-  description: "Resultados de la comprobación de validación de datos"
-  input_partition_col: "_observ_end_dt"
-
 mc_bel:
   Input:
     - transformed_bel
@@ -101,12 +96,6 @@ check_date:
   Output: control_rango_fechas
   description: "Verifica que todos los flows de data integration tengan información del mes anterior"
 
-sanity_check:
-  Input:
-    - all_tables
-  Output: historial_sanity_check
-  input_partition_col: "_observ_end_dt"
-  description: "Logs de calidad de datos generados por el Sanity Check"
 dashboard_volume:
   Output: volume_data_dashboard
   description: "Información de resumen de comportamiento y estadistica descriptiva para dashboard con granularidad por tabla"

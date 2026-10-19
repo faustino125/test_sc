@@ -16,69 +16,6 @@ spark = DatabricksSession.builder.getOrCreate()
 spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "true")
 
 
-def _build_merge_delete_condition(p_combos) -> str:
-    """Build the DELETE predicate that clears the results being replaced.
-
-    One `nombre_dataset = ... AND _observ_end_dt IN (...)` term per dataset
-    instead of one OR term per (dataset, month): a 10-year rerun stays a short
-    predicate, and the IN list on the partition column prunes partitions.
-
-    Args:
-        p_combos: Rows/dicts with nombre_dataset and _observ_end_dt
-
-    Returns:
-        SQL predicate, or an empty string when there is nothing to delete.
-    """
-
-    def _quote(p_value) -> str:
-        return "'" + str(p_value).replace("'", "''") + "'"
-
-    months_by_dataset = {}
-    for row in p_combos:
-        months_by_dataset.setdefault(row["nombre_dataset"], set()).add(
-            row["_observ_end_dt"]
-        )
-
-    conditions = []
-    for dataset, months in sorted(months_by_dataset.items()):
-        month_list = ", ".join(_quote(m) for m in sorted(months, key=str) if m)
-        null_month = None in months
-        parts = []
-        if month_list:
-            parts.append(f"_observ_end_dt IN ({month_list})")
-        if null_month:
-            parts.append("_observ_end_dt IS NULL")
-        conditions.append(
-            f"(nombre_dataset = {_quote(dataset)} AND ({' OR '.join(parts)}))"
-        )
-    return " OR ".join(conditions)
-
-
-def _execute_merge_by_dataset(p_output_df, p_table):
-    """
-    Executes a MERGE operation to delete existing records for the same datasets.
-
-    Args:
-        p_output_df (DataFrame): The DataFrame containing the new data to be merged.
-        p_table (str): The name of the target database table.
-    """
-    table_exists = False
-    try:
-        table_exists = spark.catalog.tableExists(p_table)
-    except Exception:
-        table_exists = False
-
-    if table_exists:
-        combos = (
-            p_output_df.select("nombre_dataset", "_observ_end_dt").distinct().collect()
-        )
-        condition = _build_merge_delete_condition(combos)
-        if condition:
-            spark.sql(f"DELETE FROM {p_table} WHERE {condition}")
-
-    return ("append" if table_exists else "overwrite", table_exists)
-
-
 @task(name="save_delta_file_task", tags=["save", "delta"])
 def save_delta_file_task(
     p_output_df,
@@ -88,7 +25,6 @@ def save_delta_file_task(
     p_table_folder: str,
     p_schema: str,
     p_table_description: str,
-    p_mode: str = None,
 ):
     """
     Saves a DataFrame as a Delta file.
@@ -108,7 +44,6 @@ def save_delta_file_task(
         p_table_folder (str): Output folder name.
         p_schema (str): Represents a logical grouping of data objects.
         p_table_description (str) : table description
-        p_mode (str, optional): Mode of saving data.
     """
     logger = get_run_logger()
     main_env = os.getenv("new_env")
@@ -134,7 +69,6 @@ def save_delta_file_task(
     )
 
     options = {}
-    overwrite = False
     min_date = os.getenv("start_dt")
     max_date = os.getenv("end_dt")
     full_path = p_folder_name + "/" + table
@@ -152,70 +86,50 @@ def save_delta_file_task(
             "_observ_end_dt", f.last_day(f.col(p_partition_col))
         )
 
-    if p_mode == "MERGE_BY_DATASET":
-        write_mode, table_exists = _execute_merge_by_dataset(p_output_df, db_table)
+    writer = p_output_df.write.format("delta").mode("overwrite")
 
-        writer = p_output_df.write.format("delta").mode(write_mode)
+    options["overwriteSchema"] = "true"
 
-        options["mergeSchema"] = "true"
-        options["isManaged"] = "true"
+    if p_partition_col not in ("fecha_catalogo", ""):
+        writer = writer.partitionBy(p_partition_col)
 
-        if p_partition_col not in ("fecha_catalogo", ""):
-            writer = writer.partitionBy(p_partition_col)
+        if p_overwrite_strategy == "replaceWhere":
+            options[
+                p_overwrite_strategy
+            ] = f"{p_partition_col} BETWEEN '{min_date}' AND '{max_date}'"
+            options["overwriteSchema"] = "false"
 
-        writer.saveAsTable(name=db_table, path=full_path, **options)
+    writer.option("isManaged", "true").saveAsTable(
+        name=db_table, path=full_path, **options
+    )
 
-    else:
-        writer = p_output_df.write.format("delta").mode("overwrite")
-
-        options = {}
-        options["overwriteSchema"] = "true"
-
-        if p_partition_col not in ("fecha_catalogo", ""):
-            writer = writer.partitionBy(p_partition_col)
-
-            if p_overwrite_strategy == "replaceWhere":
-                options[
-                    p_overwrite_strategy
-                ] = f"{p_partition_col} BETWEEN '{min_date}' AND '{max_date}'"
-                options["overwriteSchema"] = "false"
-
-        writer.option("isManaged", "true").saveAsTable(
-            name=db_table, path=full_path, **options
+    if p_partition_col not in ("fecha_catalogo", ""):
+        spark.sql(
+            f"""OPTIMIZE {db_table}
+            WHERE {p_partition_col} BETWEEN '{min_date}' AND '{max_date}'"""
         )
 
-        if p_partition_col not in ("fecha_catalogo", ""):
-            spark.sql(
-                f"""OPTIMIZE {db_table}
-                WHERE {p_partition_col} BETWEEN '{min_date}' AND '{max_date}'"""
-            )
-
-        overwrite = (
-            True if os.getenv("overwrite_strategy") == "overwriteSchema" else False
-        )
-        product_folder_path = os.path.join(
-            root_dir, os.getenv("folder"), "src", os.getenv("output_domain")
-        )
-        process_product_schemas(
-            product_folder_path,
-            db_table,
-            p_table_description,
-            p_partition_col,
-            overwrite,
-        )
+    overwrite = (
+        True if os.getenv("overwrite_strategy") == "overwriteSchema" else False
+    )
+    product_folder_path = os.path.join(
+        root_dir, os.getenv("folder"), "src", os.getenv("output_domain")
+    )
+    process_product_schemas(
+        product_folder_path,
+        db_table,
+        p_table_description,
+        p_partition_col,
+        overwrite,
+    )
 
     logger.info(f"Data Saved at Path:--{full_path}--")
-    if os.getenv("output_domain") == "sanity_check":
-        # Sanity check results are written once per block of months; vacuuming
-        # on every write lists the whole table each time. Run it periodically.
-        logger.info(f"VACUUM skipped for sanity check results table {db_table}")
-    else:
-        spark.sql(f"VACUUM {db_table} RETAIN 168 HOURS")
-        logger.info(f"VACUUMING process for :--{db_table}-- completed")
+    spark.sql(f"VACUUM {db_table} RETAIN 168 HOURS")
+    logger.info(f"VACUUMING process for :--{db_table}-- completed")
 
 
 @flow(name="save_data_flow")
-def save_data_flow(p_output_df, p_mode: str = None):
+def save_data_flow(p_output_df):
     """
     Saves processed data into a Delta format, applying configurations from a YAML file.
 
@@ -227,7 +141,6 @@ def save_data_flow(p_output_df, p_mode: str = None):
 
     Args:
         p_output_df (DataFrame): The DataFrame to be saved.
-        p_mode (str, optional): Mode of saving data. Defaults to None.
 
     Returns:
         None: This flow does not return a value, but it saves the processed data.
@@ -276,11 +189,10 @@ def save_data_flow(p_output_df, p_mode: str = None):
         output_data += data_subfolder
         domain_path = os.path.join(output_data, output_domain)
 
-        is_sc_results = output_domain == "sanity_check"
         if (
             data_subfolder in ["data_transformation", "data_integration"]
             and pipeline_flow != "dashboard_flow"
-        ) and not is_sc_results:
+        ):
             prefix_path = os.path.join("env/base", "prefixes.yml")
             prefix = load_yaml_file(prefix_path).get(output_domain, {})
 
@@ -293,7 +205,7 @@ def save_data_flow(p_output_df, p_mode: str = None):
 
         overwrite_strategy = os.getenv("overwrite_strategy")
 
-        if os.getenv("auto_sanity_check_enabled") == "1" and not is_sc_results:
+        if os.getenv("auto_sanity_check_enabled") == "1":
             from data_engineering.core.sanity_check.sanity_check_flow import (
                 pre_save_quality_checks,
             )
@@ -314,7 +226,6 @@ def save_data_flow(p_output_df, p_mode: str = None):
             file_name,
             schema,
             table_description,
-            p_mode,
         )
 
     except Exception as e:
